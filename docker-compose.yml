@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spothail-backend
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=development
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - spothail-network
+
+  passenger-app:
+    build:
+      context: ./passenger-app
+      dockerfile: Dockerfile
+    container_name: spothail-passenger-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - WATCHPACK_POLLING=true
+      - NEXT_PUBLIC_SOCKET_SERVER_URL=http://localhost:4000
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+    env_file:
+      - path: ./passenger-app/.env.local
+        required: false
+    volumes:
+      - ./passenger-app:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - spothail-network
+
+networks:
+  spothail-network:
+    driver: bridge
