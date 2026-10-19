@@ -22,6 +22,8 @@ import {
   WifiOff,
   Flame,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   DriverState,
@@ -138,6 +140,7 @@ export default function DriverHudPage() {
 
   // UI & HUD State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCockpitMinimized, setIsCockpitMinimized] = useState(false);
   const [pings, setPings] = useState<PassengerPing[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
@@ -295,6 +298,8 @@ export default function DriverHudPage() {
       attributionControl: false,
     });
 
+    map.setPadding({ top: 60, bottom: 20, left: 20, right: 20 });
+
     mapRef.current = map;
 
     map.on("load", () => {
@@ -383,7 +388,7 @@ export default function DriverHudPage() {
 
     if (!driverMarkerRef.current) {
       const el = document.createElement("div");
-      el.className = "w-max inline-flex flex-col items-center pointer-events-none z-30";
+      el.className = "w-max inline-flex flex-col items-center pointer-events-none z-10";
       el.innerHTML = `
         <div class="relative flex items-center justify-center">
           <div class="w-10 h-10 rounded-full bg-blue-500/30 animate-ping absolute"></div>
@@ -423,7 +428,7 @@ export default function DriverHudPage() {
         pingMarkersRef.current.get(ping.id)?.setLngLat([ping.lng, ping.lat]);
       } else {
         const el = document.createElement("div");
-        el.className = "w-max inline-flex flex-col items-center cursor-pointer z-40";
+        el.className = "w-max inline-flex flex-col items-center cursor-pointer z-10";
         el.innerHTML = `
           <div class="relative flex items-center justify-center">
             <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-amber-400 opacity-75"></span>
@@ -436,7 +441,11 @@ export default function DriverHudPage() {
           </div>
         `;
         el.onclick = () => {
-          map.flyTo({ center: [ping.lng, ping.lat], zoom: 16 });
+          map.flyTo({
+            center: [ping.lng, ping.lat],
+            zoom: 16,
+            padding: { top: 60, bottom: 20, left: 20, right: 20 },
+          });
         };
 
         const marker = new mapboxgl.Marker({ element: el })
@@ -511,6 +520,22 @@ export default function DriverHudPage() {
     }
   }, [showHeatmap]);
 
+  // 6. Smoothly resize Mapbox canvas during and after cockpit collapse transition
+  useEffect(() => {
+    const interval = setInterval(() => {
+      mapRef.current?.resize();
+    }, 40);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      mapRef.current?.resize();
+    }, 350);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [isCockpitMinimized]);
+
   // Cockpit Occupancy Actions
   const handleIncrement = () => {
     triggerHaptics();
@@ -584,7 +609,7 @@ export default function DriverHudPage() {
       {/* ====================================================================== */}
       {/* TOP HEADER COMMAND STRIP                                              */}
       {/* ====================================================================== */}
-      <header className="absolute top-0 left-0 right-0 z-30 bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
+      <header className="absolute top-0 left-0 right-0 z-40 bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-lg shadow-inner">
             🛺
@@ -646,9 +671,13 @@ export default function DriverHudPage() {
       </header>
 
       {/* ====================================================================== */}
-      {/* TOP 55%: MAPBOX RADAR, HEATMAP & PASSENGER PINGS CANVAS                */}
+      {/* TOP MAPBOX RADAR, HEATMAP & PASSENGER PINGS CANVAS                     */}
       {/* ====================================================================== */}
-      <section className="relative w-full h-[55%] overflow-hidden bg-slate-950">
+      <section
+        className={`relative w-full overflow-hidden bg-slate-950 isolate transition-all duration-300 ease-in-out ${
+          isCockpitMinimized ? "h-[calc(100%-4rem)]" : "h-[55%]"
+        }`}
+      >
         {!mapboxToken ? (
           <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-slate-300 bg-slate-900">
             <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
@@ -658,7 +687,7 @@ export default function DriverHudPage() {
             </p>
           </div>
         ) : (
-          <div ref={mapContainerRef} className="w-full h-full" />
+          <div ref={mapContainerRef} className="w-full h-full relative overflow-hidden" />
         )}
 
         {/* Floating Active Corridor Badge in Map Area */}
@@ -683,6 +712,7 @@ export default function DriverHudPage() {
               mapRef.current?.flyTo({
                 center: [driverState.lng, driverState.lat],
                 zoom: 15.5,
+                padding: { top: 60, bottom: 20, left: 20, right: 20 },
               });
             }}
             className="pointer-events-auto p-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-blue-400 shadow-lg active:scale-90 transition"
@@ -694,51 +724,133 @@ export default function DriverHudPage() {
       </section>
 
       {/* ====================================================================== */}
-      {/* BOTTOM 45%: TACTILE COCKPIT & SEAT CONTROLS                            */}
+      {/* BOTTOM COCKPIT & SEAT CONTROLS (EXPANDED OR MINIMAL STATUS BAR)        */}
       {/* ====================================================================== */}
-      <section className="relative w-full h-[45%] bg-slate-950 border-t border-slate-800/80 flex flex-col justify-between px-3.5 pt-2 pb-3">
-        {/* Row 1: Giant Occupancy Counter & Status Badge */}
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span
-                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${occupancyTheme.badge}`}
-              >
-                {occupancyTheme.label}
-              </span>
-              <span className="text-xs text-slate-400 font-bold">
-                {driverState.maxCapacity - driverState.occupancy} seats free
-              </span>
-            </div>
-            {/* Visual Dot Array */}
-            <div className="flex items-center gap-1.5 mt-1">
-              {Array.from({ length: driverState.maxCapacity }).map((_, idx) => (
-                <div
-                  key={idx}
-                  className={`w-3 h-3 rounded-full border transition-all ${
-                    idx < driverState.occupancy
-                      ? isFull
-                        ? "bg-rose-500 border-rose-400 shadow-sm shadow-rose-500"
-                        : "bg-amber-400 border-amber-300 shadow-sm shadow-amber-500"
-                      : "bg-slate-800 border-slate-700"
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
+      <section
+        className={`relative w-full bg-slate-950 border-t border-slate-800/80 flex flex-col justify-between px-3.5 pt-1.5 pb-2.5 transition-all duration-300 ease-in-out z-20 ${
+          isCockpitMinimized ? "h-16" : "h-[45%]"
+        }`}
+      >
+        {/* Drag Handle & Collapse/Expand Bar */}
+        <div className="flex items-center justify-between w-full pb-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptics();
+              setIsCockpitMinimized(!isCockpitMinimized);
+            }}
+            className="py-1 cursor-pointer flex-1 flex items-center justify-center -ml-2 select-none"
+            aria-label={isCockpitMinimized ? "Expand cockpit" : "Collapse cockpit"}
+          >
+            <div className="w-10 h-1 bg-slate-700 hover:bg-slate-500 rounded-full transition-colors" />
+          </button>
 
-          {/* Giant Numbers */}
-          <div className="flex items-baseline gap-1">
-            <span
-              className={`text-5xl font-black font-mono tracking-tight ${occupancyTheme.text}`}
-            >
-              {driverState.occupancy}
-            </span>
-            <span className="text-2xl font-bold font-mono text-slate-500">
-              / {driverState.maxCapacity}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerHaptics();
+              setIsCockpitMinimized(!isCockpitMinimized);
+            }}
+            className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 text-[11px] font-black flex items-center gap-1 shadow-sm active:scale-95 transition"
+          >
+            {isCockpitMinimized ? (
+              <span>🛺 {driverState.occupancy}/{driverState.maxCapacity} Seats ▾</span>
+            ) : (
+              <>
+                <X className="w-3 h-3 text-slate-400" />
+                <span>Collapse Cockpit</span>
+              </>
+            )}
+          </button>
         </div>
+
+        {/* Minimized Compact Bar View */}
+        {isCockpitMinimized ? (
+          <div
+            onClick={() => {
+              triggerHaptics();
+              setIsCockpitMinimized(false);
+            }}
+            className="flex items-center justify-between w-full h-full pb-1 cursor-pointer select-none"
+          >
+            {/* Left: Occupancy badge & dot array */}
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🛺</span>
+              <span className="text-sm font-extrabold text-white">
+                Occupancy:{" "}
+                <span className={`font-mono font-black ${occupancyTheme.text}`}>
+                  {driverState.occupancy} / {driverState.maxCapacity} Seats
+                </span>
+              </span>
+              <span className="text-sm">
+                {isEmpty ? "🟢" : isFull ? "🔴" : "🟡"}
+              </span>
+            </div>
+
+            {/* Right: Quick Expand button */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 font-bold hidden sm:inline">
+                {driverState.destination?.name || "Local Roaming"}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  triggerHaptics();
+                  setIsCockpitMinimized(false);
+                }}
+                className="px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-[11px] shadow-sm flex items-center gap-1 active:scale-95 transition"
+              >
+                <span>Open</span>
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Row 1: Giant Occupancy Counter & Status Badge */}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${occupancyTheme.badge}`}
+                  >
+                    {occupancyTheme.label}
+                  </span>
+                  <span className="text-xs text-slate-400 font-bold">
+                    {driverState.maxCapacity - driverState.occupancy} seats free
+                  </span>
+                </div>
+                {/* Visual Dot Array */}
+                <div className="flex items-center gap-1.5 mt-1">
+                  {Array.from({ length: driverState.maxCapacity }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-3 h-3 rounded-full border transition-all ${
+                        idx < driverState.occupancy
+                          ? isFull
+                            ? "bg-rose-500 border-rose-400 shadow-sm shadow-rose-500"
+                            : "bg-amber-400 border-amber-300 shadow-sm shadow-amber-500"
+                          : "bg-slate-800 border-slate-700"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Giant Numbers */}
+              <div className="flex items-baseline gap-1">
+                <span
+                  className={`text-5xl font-black font-mono tracking-tight ${occupancyTheme.text}`}
+                >
+                  {driverState.occupancy}
+                </span>
+                <span className="text-2xl font-bold font-mono text-slate-500">
+                  / {driverState.maxCapacity}
+                </span>
+              </div>
+            </div>
 
         {/* Row 2: Massive Thumb-Zone Board/Drop Buttons */}
         <div className="grid grid-cols-2 gap-3 my-1">
@@ -841,6 +953,8 @@ export default function DriverHudPage() {
             })}
           </div>
         </div>
+          </>
+        )}
       </section>
 
       {/* ====================================================================== */}

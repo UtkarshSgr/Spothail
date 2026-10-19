@@ -43,6 +43,14 @@ select,
   display: none !important;
 }
 
+.mapboxgl-map {
+  overflow: hidden !important;
+}
+
+.mapboxgl-canvas-container {
+  overflow: hidden !important;
+}
+
 /* Minimal scrollbars */
 ::-webkit-scrollbar {
   width: 4px;
