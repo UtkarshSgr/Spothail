@@ -1,0 +1,57 @@
+@import 'mapbox-gl/dist/mapbox-gl.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    background-color: #020617;
+    color: #f8fafc;
+  }
+}
+
+button,
+a,
+input,
+select,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Ensure Mapbox markers shrink-wrap strictly to content */
+.mapboxgl-marker {
+  width: max-content !important;
+  height: max-content !important;
+}
+
+.mapboxgl-ctrl-attrib {
+  display: none !important;
+}
+
+/* Minimal scrollbars */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 9999px;
+}
