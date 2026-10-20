@@ -1,76 +1,21 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { io, Socket } from "socket.io-client";
-import {
-  Users,
-  Plus,
-  Minus,
-  Settings,
-  X,
-  Radio,
-  Eye,
-  EyeOff,
-  Bell,
-  MapPin,
-  Navigation,
-  Compass,
-  AlertCircle,
-  Flame,
-  Check,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { Navigation, Compass, AlertCircle } from "lucide-react";
 import {
   DriverState,
   CorridorDestination,
   PassengerPing,
   SeatCapacity,
 } from "@/types/spothail";
+import { DriverHeader } from "@/components/DriverHeader";
+import { DriverCockpit, CORRIDORS } from "@/components/DriverCockpit";
 
 // Default driver starting coordinates: NIT Calicut corridor
 const DEFAULT_COORDS = { lat: 11.3216, lng: 75.9342 };
-
-// Corridor Presets for 1-Tap Fast Selection
-const CORRIDORS: CorridorDestination[] = [
-  {
-    id: "nit-main-gate",
-    name: "NIT Main Gate",
-    via: "Rajpath",
-    lat: 11.3216,
-    lng: 75.9336,
-  },
-  {
-    id: "kattangal-jn",
-    name: "Kattangal Jn",
-    via: "Main Road",
-    lat: 11.3275,
-    lng: 75.9348,
-  },
-  {
-    id: "mbb-hostels",
-    name: "MBB Hostels",
-    via: "Campus Avenue",
-    lat: 11.3175,
-    lng: 75.9315,
-  },
-  {
-    id: "kunnamangalam",
-    name: "Kunnamangalam",
-    via: "SH 34 Corridor",
-    lat: 11.3056,
-    lng: 75.8767,
-  },
-  {
-    id: "kallanthod",
-    name: "Kallanthod",
-    via: "Mavoor Link",
-    lat: 11.334,
-    lng: 75.942,
-  },
-];
 
 // Commuter Demand GeoJSON Heatmap Nodes around NIT Calicut
 const COMMUTER_HEATMAP_DATA = {
@@ -137,7 +82,6 @@ export default function DriverHudPage() {
   });
 
   // UI & HUD State
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCockpitMinimized, setIsCockpitMinimized] = useState(false);
   const [pings, setPings] = useState<PassengerPing[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -153,7 +97,8 @@ export default function DriverHudPage() {
   const playDashboardChime = useCallback(() => {
     try {
       const AudioCtx =
-        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
       const now = ctx.currentTime;
@@ -282,7 +227,7 @@ export default function DriverHudPage() {
     }
   }, [driverState]);
 
-  // 1. Initialize Mapbox Map Canvas (Top 55%)
+  // 1. Initialize Mapbox Map Canvas (Top 55% or Full when minimized)
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current || !mapboxToken) return;
 
@@ -570,92 +515,48 @@ export default function DriverHudPage() {
     setDriverState((prev) => ({ ...prev, occupancy: prev.maxCapacity }));
   };
 
-  // Color Coding Based on Seat Radar Protocol
-  const isFull = driverState.occupancy >= driverState.maxCapacity;
-  const isEmpty = driverState.occupancy === 0;
-
-  const occupancyTheme = useMemo(() => {
-    if (isEmpty) {
-      return {
-        bg: "bg-emerald-950/40 border-emerald-500/50",
-        text: "text-emerald-400",
-        badge: "bg-emerald-500 text-slate-950",
-        label: "EMPTY AUTO",
-        glow: "shadow-emerald-500/20",
-      };
-    }
-    if (isFull) {
-      return {
-        bg: "bg-rose-950/40 border-rose-500/50",
-        text: "text-rose-400",
-        badge: "bg-rose-600 text-white",
-        label: "FULL - NOT BOARDING",
-        glow: "shadow-rose-500/20",
-      };
-    }
-    return {
-      bg: "bg-amber-950/40 border-amber-500/50",
-      text: "text-amber-400",
-      badge: "bg-amber-500 text-slate-950",
-      label: "HAS SPACE",
-      glow: "shadow-amber-500/20",
-    };
-  }, [isEmpty, isFull]);
+  const handleCorridorSelect = (corridor: CorridorDestination) => {
+    triggerHaptics();
+    setDriverState((prev) => ({
+      ...prev,
+      destination: corridor,
+      showDestination: true,
+    }));
+  };
 
   return (
     <main className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-slate-950 select-none font-sans">
       {/* ====================================================================== */}
-      {/* TOP HEADER COMMAND STRIP                                              */}
+      {/* 1. MODULAR DRIVER HEADER & SETTINGS DRAWER                             */}
       {/* ====================================================================== */}
-      <header className="absolute top-0 left-0 right-0 z-40 bg-[#1C1C1E] px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-        {/* Left: Compact Status Pill (Live / Offline Toggle) */}
-        <button
-          onClick={() => {
-            triggerHaptics();
-            setDriverState((prev) => ({ ...prev, isOnline: !prev.isOnline }));
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-semibold hover:bg-zinc-700 active:scale-95 transition"
-          aria-label={driverState.isOnline ? "Status: Live (Tap to go offline)" : "Status: Offline (Tap to go live)"}
-          title={driverState.isOnline ? "Live - Tap to go offline" : "Offline - Tap to go live"}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              driverState.isOnline ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className={driverState.isOnline ? "text-white" : "text-zinc-300"}>
-            {driverState.isOnline ? "Live" : "Offline"}
-          </span>
-        </button>
-
-        {/* Right: Action Controls (Heatmap & Settings) */}
-        <div className="flex items-center gap-2">
-          {/* Heatmap Toggle */}
-          <button
-            onClick={() => setShowHeatmap(!showHeatmap)}
-            className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1 transition ${
-              showHeatmap
-                ? "bg-zinc-800 text-yellow-400 border-yellow-400"
-                : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-yellow-400 hover:bg-zinc-700"
-            }`}
-            title="Toggle Commuter Heatmap"
-          >
-            <Flame className={`w-4 h-4 ${showHeatmap ? "text-yellow-400" : "text-zinc-400"}`} />
-          </button>
-
-          {/* Gear Settings Button */}
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded-xl bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700 active:scale-95 transition"
-            aria-label="Open settings"
-          >
-            <Settings className="w-4 h-4 text-white" />
-          </button>
-        </div>
-      </header>
+      <DriverHeader
+        isOnline={driverState.isOnline}
+        setIsOnline={(val) => {
+          triggerHaptics();
+          setDriverState((prev) => ({ ...prev, isOnline: val }));
+        }}
+        maxSeats={driverState.maxCapacity}
+        setMaxSeats={handleSetCapacity}
+        showDestination={driverState.showDestination}
+        setShowDestination={(val) => {
+          triggerHaptics();
+          setDriverState((prev) => ({ ...prev, showDestination: val }));
+        }}
+        showHeatmap={showHeatmap}
+        setShowHeatmap={setShowHeatmap}
+        onSimulatePing={() =>
+          handleIncomingPing({
+            id: `SIM-${Date.now()}`,
+            lat: driverState.lat + (Math.random() - 0.4) * 0.003,
+            lng: driverState.lng + (Math.random() - 0.4) * 0.003,
+            timestamp: Date.now(),
+          })
+        }
+        triggerHaptics={triggerHaptics}
+      />
 
       {/* ====================================================================== */}
-      {/* TOP MAPBOX RADAR, HEATMAP & PASSENGER PINGS CANVAS                     */}
+      {/* 2. MAPBOX RADAR, HEATMAP & PASSENGER PINGS CANVAS                      */}
       {/* ====================================================================== */}
       <section
         className={`relative w-full overflow-hidden bg-slate-950 isolate transition-all duration-300 ease-in-out ${
@@ -708,413 +609,21 @@ export default function DriverHudPage() {
       </section>
 
       {/* ====================================================================== */}
-      {/* BOTTOM COCKPIT & SEAT CONTROLS (EXPANDED OR MINIMAL STATUS BAR)        */}
+      {/* 3. MODULAR DRIVER COCKPIT & SEAT CONTROLS                             */}
       {/* ====================================================================== */}
-      <section
-        className={`relative w-full bg-slate-950 border-t border-slate-800/80 flex flex-col justify-between px-3.5 pt-1.5 pb-2.5 transition-all duration-300 ease-in-out z-20 ${
-          isCockpitMinimized ? "h-16" : "h-[45%]"
-        }`}
-      >
-        {/* Drag Handle & Collapse/Expand Bar */}
-        <div className="flex items-center justify-between w-full pb-0.5">
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptics();
-              setIsCockpitMinimized(!isCockpitMinimized);
-            }}
-            className="py-1 cursor-pointer flex-1 flex items-center justify-center -ml-2 select-none"
-            aria-label={isCockpitMinimized ? "Expand cockpit" : "Collapse cockpit"}
-          >
-            <div className="w-10 h-1 bg-slate-700 hover:bg-slate-500 rounded-full transition-colors" />
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerHaptics();
-              setIsCockpitMinimized(!isCockpitMinimized);
-            }}
-            className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 text-[11px] font-black flex items-center gap-1 shadow-sm active:scale-95 transition"
-          >
-            {isCockpitMinimized ? (
-              <span>🛺 {driverState.occupancy}/{driverState.maxCapacity} Seats ▾</span>
-            ) : (
-              <>
-                <X className="w-3 h-3 text-slate-400" />
-                <span>Collapse Cockpit</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Minimized Compact Bar View */}
-        {isCockpitMinimized ? (
-          <div
-            onClick={() => {
-              triggerHaptics();
-              setIsCockpitMinimized(false);
-            }}
-            className="flex items-center justify-between w-full h-full pb-1 cursor-pointer select-none"
-          >
-            {/* Left: Occupancy badge & dot array */}
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🛺</span>
-              <span className="text-sm font-extrabold text-white">
-                Occupancy:{" "}
-                <span className={`font-mono font-black ${occupancyTheme.text}`}>
-                  {driverState.occupancy} / {driverState.maxCapacity} Seats
-                </span>
-              </span>
-              <span className="text-sm">
-                {isEmpty ? "🟢" : isFull ? "🔴" : "🟡"}
-              </span>
-            </div>
-
-            {/* Right: Quick Expand button */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-bold hidden sm:inline">
-                {driverState.destination?.name || "Local Roaming"}
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerHaptics();
-                  setIsCockpitMinimized(false);
-                }}
-                className="px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-[11px] shadow-sm flex items-center gap-1 active:scale-95 transition"
-              >
-                <span>Open</span>
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Row 1: Giant Occupancy Counter & Status Badge */}
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${occupancyTheme.badge}`}
-                  >
-                    {occupancyTheme.label}
-                  </span>
-                  <span className="text-xs text-slate-400 font-bold">
-                    {driverState.maxCapacity - driverState.occupancy} seats free
-                  </span>
-                </div>
-                {/* Visual Dot Array */}
-                <div className="flex items-center gap-1.5 mt-1">
-                  {Array.from({ length: driverState.maxCapacity }).map((_, idx) => (
-                    <div
-                      key={idx}
-                      className={`w-3 h-3 rounded-full border transition-all ${
-                        idx < driverState.occupancy
-                          ? isFull
-                            ? "bg-rose-500 border-rose-400 shadow-sm shadow-rose-500"
-                            : "bg-amber-400 border-amber-300 shadow-sm shadow-amber-500"
-                          : "bg-slate-800 border-slate-700"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Giant Numbers */}
-              <div className="flex items-baseline gap-1">
-                <span
-                  className={`text-5xl font-black font-mono tracking-tight ${occupancyTheme.text}`}
-                >
-                  {driverState.occupancy}
-                </span>
-                <span className="text-2xl font-bold font-mono text-slate-500">
-                  / {driverState.maxCapacity}
-                </span>
-              </div>
-            </div>
-
-        {/* Row 2: Massive Thumb-Zone Board/Drop Buttons */}
-        <div className="grid grid-cols-2 gap-3 my-1">
-          {/* Decrement Button: DROP PASSENGER */}
-          <button
-            disabled={driverState.occupancy <= 0}
-            onClick={handleDecrement}
-            className={`h-16 rounded-2xl flex items-center justify-center gap-3 font-black text-lg border shadow-xl transition-all active:scale-95 select-none ${
-              driverState.occupancy <= 0
-                ? "bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed opacity-50"
-                : "bg-slate-850 hover:bg-slate-800 border-slate-700 text-rose-300 active:bg-rose-950/30"
-            }`}
-          >
-            <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
-              <Minus className="w-5 h-5 stroke-[3]" />
-            </div>
-            <div className="text-left">
-              <span className="block text-sm font-extrabold leading-none text-white">DROP</span>
-              <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
-                -1 Passenger
-              </span>
-            </div>
-          </button>
-
-          {/* Increment Button: BOARD PASSENGER */}
-          <button
-            disabled={driverState.occupancy >= driverState.maxCapacity}
-            onClick={handleIncrement}
-            className={`h-16 rounded-2xl flex items-center justify-center gap-3 font-black text-lg border shadow-xl transition-all active:scale-95 select-none ${
-              driverState.occupancy >= driverState.maxCapacity
-                ? "bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed opacity-50"
-                : "bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white shadow-emerald-900/40"
-            }`}
-          >
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white">
-              <Plus className="w-5 h-5 stroke-[3]" />
-            </div>
-            <div className="text-left">
-              <span className="block text-sm font-extrabold leading-none text-white">BOARD</span>
-              <span className="text-[10px] text-emerald-100 font-semibold block mt-0.5">
-                +1 Passenger
-              </span>
-            </div>
-          </button>
-        </div>
-
-        {/* Row 3: 1-Tap Quick Shortcut Pills */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={handleQuickEmpty}
-            className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-300 font-bold text-xs border border-slate-800 active:scale-95 transition flex items-center justify-center gap-1.5"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Empty Auto (0/{driverState.maxCapacity})
-          </button>
-          <button
-            onClick={handleQuickFull}
-            className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-300 font-bold text-xs border border-slate-800 active:scale-95 transition flex items-center justify-center gap-1.5"
-          >
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
-            Full Auto ({driverState.maxCapacity}/{driverState.maxCapacity})
-          </button>
-        </div>
-
-        {/* Row 4: 1-Tap Horizontal Corridor Presets */}
-        <div className="mt-1">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              1-Tap Corridor Destination
-            </span>
-            <span className="text-[10px] text-blue-400 font-bold">
-              {driverState.destination?.name || "None"}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-            {CORRIDORS.map((corridor) => {
-              const isSelected = driverState.destination?.id === corridor.id;
-              return (
-                <button
-                  key={corridor.id}
-                  onClick={() => {
-                    triggerHaptics();
-                    setDriverState((prev) => ({
-                      ...prev,
-                      destination: corridor,
-                      showDestination: true,
-                    }));
-                  }}
-                  className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-black border transition active:scale-95 flex items-center gap-1.5 ${
-                    isSelected
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-900/40"
-                      : "bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-850"
-                  }`}
-                >
-                  <MapPin className="w-3 h-3 text-current" />
-                  <span>{corridor.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-          </>
-        )}
-      </section>
-
-      {/* ====================================================================== */}
-      {/* SLIDE-IN SETTINGS DRAWER                                               */}
-      {/* ====================================================================== */}
-      {isSettingsOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center"
-          onClick={() => setIsSettingsOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg bg-slate-900 border-t border-slate-800 rounded-t-3xl p-5 shadow-2xl animate-in slide-in-from-bottom-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Drawer Drag Handle & Header */}
-            <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto mb-3" />
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-black text-white">HUD Cockpit Settings</h3>
-              </div>
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="p-1.5 rounded-full text-slate-400 hover:bg-slate-800"
-                aria-label="Close settings"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Section 1: Broadcasting Status Toggle */}
-            <div className="py-3.5 border-b border-slate-800">
-              <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                Radar Visibility
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    triggerHaptics();
-                    setDriverState((prev) => ({ ...prev, isOnline: true }));
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
-                    driverState.isOnline
-                      ? "bg-green-700 text-white border-green-700"
-                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
-                  }`}
-                >
-                  <Radio className="w-4 h-4" />
-                  <span>🟢 Online (Broadcast)</span>
-                </button>
-                <button
-                  onClick={() => {
-                    triggerHaptics();
-                    setDriverState((prev) => ({ ...prev, isOnline: false }));
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
-                    !driverState.isOnline
-                      ? "bg-red-800 text-zinc-100 border-red-800"
-                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
-                  }`}
-                >
-                  <span>⚫ Offline (Hidden)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Section 2: Dynamic Seating Capacity Selector */}
-            <div className="py-3.5 border-b border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-bold uppercase text-slate-400 block">
-                  Vehicle Seating Capacity
-                </label>
-                <span className="text-xs font-black text-amber-400">
-                  {driverState.maxCapacity} Seats
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => handleSetCapacity(3)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
-                    driverState.maxCapacity === 3
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>3 Seats (Standard)</span>
-                </button>
-                <button
-                  onClick={() => handleSetCapacity(4)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
-                    driverState.maxCapacity === 4
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>4 Seats (Shared)</span>
-                </button>
-                <button
-                  onClick={() => handleSetCapacity(6)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
-                    driverState.maxCapacity === 6
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>6 Seats (E-Rickshaw)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Section 3: Privacy Route Toggle */}
-            <div className="py-3.5 border-b border-slate-800">
-              <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                Corridor Route Privacy
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    triggerHaptics();
-                    setDriverState((prev) => ({ ...prev, showDestination: true }));
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
-                    driverState.showDestination
-                      ? "bg-blue-700 text-white border-blue-500 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>👁️ Public Route</span>
-                </button>
-                <button
-                  onClick={() => {
-                    triggerHaptics();
-                    setDriverState((prev) => ({ ...prev, showDestination: false }));
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
-                    !driverState.showDestination
-                      ? "bg-slate-700 text-white border-slate-500 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <EyeOff className="w-4 h-4" />
-                  <span>🔒 Roaming / Private</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Section 4: Demo Simulator Controls */}
-            <div className="pt-3.5">
-              <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                Demo & Audio Diagnostics
-              </label>
-              <button
-                onClick={() => {
-                  // Simulate incoming passenger near Kattangal/NITC corridor
-                  handleIncomingPing({
-                    id: `SIM-${Date.now()}`,
-                    lat: driverState.lat + (Math.random() - 0.4) * 0.003,
-                    lng: driverState.lng + (Math.random() - 0.4) * 0.003,
-                    timestamp: Date.now(),
-                  });
-                }}
-                className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition"
-              >
-                <Bell className="w-5 h-5 text-slate-950" />
-                <span>🔔 Simulate Passenger Ping (Sound + Vibrate)</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DriverCockpit
+        occupancy={driverState.occupancy}
+        maxCapacity={driverState.maxCapacity}
+        isMinimized={isCockpitMinimized}
+        setIsMinimized={setIsCockpitMinimized}
+        handleDrop={handleDecrement}
+        handleBoard={handleIncrement}
+        handleCorridorSelect={handleCorridorSelect}
+        activeCorridor={driverState.destination}
+        handleQuickEmpty={handleQuickEmpty}
+        handleQuickFull={handleQuickFull}
+        triggerHaptics={triggerHaptics}
+      />
     </main>
   );
 }
