@@ -18,8 +18,6 @@ import {
   Navigation,
   Compass,
   AlertCircle,
-  Wifi,
-  WifiOff,
   Flame,
   Check,
   ChevronDown,
@@ -609,63 +607,49 @@ export default function DriverHudPage() {
       {/* ====================================================================== */}
       {/* TOP HEADER COMMAND STRIP                                              */}
       {/* ====================================================================== */}
-      <header className="absolute top-0 left-0 right-0 z-40 bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-lg shadow-inner">
-            🛺
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-base font-black tracking-tight text-white">
-                {driverState.driverId}
-              </span>
-              <span
-                className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
-                  driverState.isOnline
-                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                    : "bg-slate-800 text-slate-400 border-slate-700"
-                }`}
-              >
-                {driverState.isOnline ? "● Broadcasting" : "○ Hidden"}
-              </span>
-            </div>
-          </div>
-        </div>
+      <header className="absolute top-0 left-0 right-0 z-40 bg-[#1C1C1E] px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+        {/* Left: Compact Status Pill (Live / Offline Toggle) */}
+        <button
+          onClick={() => {
+            triggerHaptics();
+            setDriverState((prev) => ({ ...prev, isOnline: !prev.isOnline }));
+          }}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-semibold hover:bg-zinc-700 active:scale-95 transition"
+          aria-label={driverState.isOnline ? "Status: Live (Tap to go offline)" : "Status: Offline (Tap to go live)"}
+          title={driverState.isOnline ? "Live - Tap to go offline" : "Offline - Tap to go live"}
+        >
+          <span
+            className={`w-2 h-2 rounded-full ${
+              driverState.isOnline ? "bg-green-500" : "bg-red-500"
+            }`}
+          />
+          <span className={driverState.isOnline ? "text-white" : "text-zinc-300"}>
+            {driverState.isOnline ? "Live" : "Offline"}
+          </span>
+        </button>
 
-        {/* Action Controls & Settings Button */}
+        {/* Right: Action Controls (Heatmap & Settings) */}
         <div className="flex items-center gap-2">
           {/* Heatmap Toggle */}
           <button
             onClick={() => setShowHeatmap(!showHeatmap)}
             className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1 transition ${
               showHeatmap
-                ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm"
-                : "bg-slate-800 text-slate-400 border-slate-700"
+                ? "bg-zinc-800 text-yellow-400 border-yellow-400"
+                : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-yellow-400 hover:bg-zinc-700"
             }`}
             title="Toggle Commuter Heatmap"
           >
-            <Flame className="w-4 h-4" />
+            <Flame className={`w-4 h-4 ${showHeatmap ? "text-yellow-400" : "text-zinc-400"}`} />
           </button>
-
-          {/* Socket Indicator */}
-          <div
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border ${
-              socketConnected
-                ? "bg-emerald-950/40 text-emerald-400 border-emerald-600/40"
-                : "bg-rose-950/40 text-rose-400 border-rose-600/40"
-            }`}
-          >
-            {socketConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            <span>{socketConnected ? "Live" : "Offline"}</span>
-          </div>
 
           {/* Gear Settings Button */}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 active:scale-95 transition"
+            className="p-2 rounded-xl bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700 active:scale-95 transition"
             aria-label="Open settings"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-4 h-4 text-white" />
           </button>
         </div>
       </header>
@@ -1000,8 +984,8 @@ export default function DriverHudPage() {
                   }}
                   className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
                     driverState.isOnline
-                      ? "bg-emerald-600 text-white border-emerald-400 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
+                      ? "bg-green-700 text-white border-green-700"
+                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
                   }`}
                 >
                   <Radio className="w-4 h-4" />
@@ -1014,8 +998,8 @@ export default function DriverHudPage() {
                   }}
                   className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
                     !driverState.isOnline
-                      ? "bg-rose-900 text-rose-200 border-rose-600 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
+                      ? "bg-red-800 text-zinc-100 border-red-800"
+                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
                   }`}
                 >
                   <span>⚫ Offline (Hidden)</span>
