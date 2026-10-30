@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { io, Socket } from "socket.io-client";
@@ -13,6 +14,19 @@ import {
 } from "@/types/spothail";
 import { DriverHeader } from "@/components/DriverHeader";
 import { DriverCockpit, CORRIDORS } from "@/components/DriverCockpit";
+
+const DriverLeafletMap = dynamic(
+  () => import("@/components/DriverLeafletMap").then((m) => m.DriverLeafletMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <span>Loading live driver map…</span>
+      </div>
+    ),
+  }
+);
 
 // Default driver starting coordinates: NIT Calicut corridor
 const DEFAULT_COORDS = { lat: 11.3216, lng: 75.9342 };
@@ -564,13 +578,13 @@ export default function DriverHudPage() {
         }`}
       >
         {!mapboxToken ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-slate-300 bg-slate-900">
-            <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
-            <p className="font-bold text-sm">Mapbox Token Required</p>
-            <p className="text-xs text-slate-400 max-w-xs mt-1">
-              Add NEXT_PUBLIC_MAPBOX_TOKEN to your .env.local file to activate live map.
-            </p>
-          </div>
+          <DriverLeafletMap
+            driverLat={driverState.lat}
+            driverLng={driverState.lng}
+            destination={driverState.destination}
+            pings={pings}
+            className="w-full h-full"
+          />
         ) : (
           <div ref={mapContainerRef} className="w-full h-full relative overflow-hidden" />
         )}

@@ -18,9 +18,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: 'cover',
   themeColor: '#020617',
 };
 
@@ -32,7 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${inter.className} h-screen w-screen overflow-hidden touch-none antialiased bg-slate-950 text-slate-100`}
+        className={`${inter.className} h-screen w-screen overflow-hidden antialiased bg-slate-950 text-slate-100`}
       >
         {children}
       </body>

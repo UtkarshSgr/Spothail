@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { io, Socket } from "socket.io-client";
@@ -13,12 +14,42 @@ import {
   CheckCircle2,
   X,
   Radio,
+  Layers,
+  Map as MapIcon,
+  ArrowUpRight,
+  Clock,
 } from "lucide-react";
 import { AutoDriver, FilterMode } from "@/types/spothail";
 import { MOCK_DRIVERS } from "@/lib/mockData";
+import { RadarMapCanvas } from "@/components/RadarMapCanvas";
+import { MapboxTokenModal } from "@/components/MapboxTokenModal";
+
+// LeafletMap loaded dynamically (SSR-safe — Leaflet needs the browser DOM)
+const LeafletMap = dynamic(
+  () => import("@/components/LeafletMap").then((m) => m.LeafletMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <span>Loading Live Map…</span>
+      </div>
+    ),
+  }
+);
 
 // Default center: NIT Calicut / Kattangal corridor
 const DEFAULT_CENTER = { lat: 11.3216, lng: 75.9336 };
+
+// Campus landmarks for instant search without API token
+const CAMPUS_LOCATIONS = [
+  { id: "main-gate", text: "NIT Main Gate Stand", place_name: "NIT Calicut Main Gate, Rajpath, Kattangal", center: [75.9336, 11.3216] },
+  { id: "mbb-hostels", text: "Mega Boys Block (MBB)", place_name: "MBB Hostels, Campus Avenue, NIT Calicut", center: [75.9315, 11.3175] },
+  { id: "kattangal-jn", text: "Kattangal Junction", place_name: "Kattangal Junction Stand, SH-34 Corridor", center: [75.9348, 11.3275] },
+  { id: "central-library", text: "Central Library & East Campus", place_name: "Central Library & LH Complex, NIT Calicut", center: [75.9392, 11.3228] },
+  { id: "ladies-hostels", text: "Ladies Hostels (LH)", place_name: "Ladies Hostels Avenue, NIT Calicut", center: [75.9285, 11.3195] },
+  { id: "kunnamangalam", text: "Kunnamangalam Stand", place_name: "Kunnamangalam Bus Stand, SH 34", center: [75.8767, 11.3056] },
+];
 
 // Helper: Calculate straight-line distance in meters (Haversine)
 function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -83,10 +114,33 @@ export default function PassengerRadarPage() {
   const [useMockMode, setUseMockMode] = useState<boolean>(true);
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
 
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+  // View Mode: LEAFLET (default real map), RADAR (SVG vector), or MAPBOX (3D, needs token)
+  const [viewMode, setViewMode] = useState<"LEAFLET" | "RADAR" | "MAPBOX">("LEAFLET");
+  const [tokenModalOpen, setTokenModalOpen] = useState(false);
+  const [mapboxToken, setMapboxToken] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return (
+        localStorage.getItem("spothail_mapbox_token") ||
+        process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
+        ""
+      );
+    }
+    return process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+  });
 
   const autosRef = useRef(autos);
   autosRef.current = autos;
+
+  // Handle Token Save from Modal
+  const handleSaveToken = (newToken: string) => {
+    setMapboxToken(newToken);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("spothail_mapbox_token", newToken);
+    }
+    if (newToken) {
+      setViewMode("MAPBOX");
+    }
+  };
 
   // Currently inspected auto
   const selectedAuto = useMemo(
@@ -121,9 +175,25 @@ export default function PassengerRadarPage() {
       });
   }, [autos, userPos, filterMode, destinationFilterText]);
 
-  // 1. Initialize Mapbox Canvas
+  // Aggregate stats for desktop dashboard
+  const emptyCount = useMemo(
+    () => autos.filter((a) => (a.occupancy ?? a.occupiedSeats ?? 0) === 0).length,
+    [autos]
+  );
+  const hasSpaceCount = useMemo(
+    () =>
+      autos.filter((a) => {
+        const occ = a.occupancy ?? a.occupiedSeats ?? 0;
+        const cap = a.maxCapacity ?? a.totalSeats ?? 4;
+        return occ > 0 && occ < cap;
+      }).length,
+    [autos]
+  );
+
+  // 1. Initialize Mapbox Canvas if in MAPBOX mode
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current || !mapboxToken) return;
+    if (viewMode !== "MAPBOX" || !mapContainerRef.current || mapRef.current || !mapboxToken)
+      return;
 
     mapboxgl.accessToken = mapboxToken;
 
@@ -139,13 +209,12 @@ export default function PassengerRadarPage() {
 
     map.on("load", () => {
       setMapLoaded(true);
-      // 2km Radar Ring Overlay
+
       map.addSource("radar-circle-source", {
         type: "geojson",
         data: createGeoJSONCircle([userPos.lng, userPos.lat], 2.0),
       });
 
-      // Softened Radar Fill Opacity (0.08)
       map.addLayer({
         id: "radar-circle-fill",
         type: "fill",
@@ -156,7 +225,6 @@ export default function PassengerRadarPage() {
         },
       });
 
-      // Radar Border Line
       map.addLayer({
         id: "radar-circle-stroke",
         type: "line",
@@ -168,7 +236,6 @@ export default function PassengerRadarPage() {
         },
       });
 
-      // GeoJSON source for selected auto's blue route line
       map.addSource("selected-route", {
         type: "geojson",
         data: {
@@ -209,12 +276,12 @@ export default function PassengerRadarPage() {
       map.remove();
       mapRef.current = null;
     };
-  }, [mapboxToken]);
+  }, [viewMode, mapboxToken]);
 
-  // 2. Render & Update User Location Marker + Radar Circle
+  // 2. Render & Update User Location Marker + Radar Circle (Mapbox mode)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || viewMode !== "MAPBOX") return;
 
     if (!userMarkerRef.current) {
       const el = document.createElement("div");
@@ -239,14 +306,13 @@ export default function PassengerRadarPage() {
     if (radarSource) {
       radarSource.setData(createGeoJSONCircle([userPos.lng, userPos.lat], 2.0));
     }
-  }, [userPos]);
+  }, [userPos, viewMode]);
 
-  // 3. Render Custom Traffic-Light Pill Markers for Autos
+  // 3. Render Custom Traffic-Light Pill Markers for Autos (Mapbox mode)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || viewMode !== "MAPBOX") return;
 
-    // Cleanly remove markers that are no longer in filtered list to avoid DOM leaks
     const activeIds = new Set(filteredAutos.map((a) => a.driverId));
     autoMarkersRef.current.forEach((marker, id) => {
       if (!activeIds.has(id)) {
@@ -255,7 +321,6 @@ export default function PassengerRadarPage() {
       }
     });
 
-    // Upsert custom HTML markers
     filteredAutos.forEach((auto) => {
       const occ = auto.occupancy ?? auto.occupiedSeats ?? 0;
       const cap = auto.maxCapacity ?? auto.totalSeats ?? 4;
@@ -263,10 +328,6 @@ export default function PassengerRadarPage() {
       const isFull = occ >= cap;
       const isSelected = auto.driverId === selectedAutoId;
 
-      // Color scheme based on traffic-light specification:
-      // Empty (0/4): Emerald (bg-emerald-400 text-slate-950)
-      // Has space (1-3/4): Amber (bg-amber-400 text-slate-950)
-      // Full (4/4): Dimmed Red (bg-rose-950/90 text-rose-300)
       let colorClass = "bg-amber-400 text-slate-950 border-amber-300";
       if (isEmpty) {
         colorClass = "bg-emerald-400 text-slate-950 border-emerald-300";
@@ -274,16 +335,13 @@ export default function PassengerRadarPage() {
         colorClass = "bg-rose-950/90 text-rose-300 border-rose-800/60";
       }
 
-      // Highlight ring when selected
       const ringClass = isSelected
         ? "ring-4 ring-blue-500/50 scale-110"
         : "hover:scale-105";
 
-      // Root element strictly shrink-wrapped with w-max inline-flex
       const rootClasses =
         "w-max inline-flex items-center justify-center cursor-pointer z-30 pointer-events-auto";
 
-      // Inner pill div with requested inline-flex styling
       const innerPillClasses = `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full shadow-xl text-xs font-bold border-2 whitespace-nowrap transition-transform duration-200 ${colorClass} ${ringClass}`;
 
       const badgeLabel = `🛺 [${occ}/${cap}]`;
@@ -311,127 +369,17 @@ export default function PassengerRadarPage() {
         autoMarkersRef.current.set(auto.driverId, marker);
       }
     });
-  }, [filteredAutos, selectedAutoId]);
+  }, [filteredAutos, selectedAutoId, viewMode]);
 
-  // 4. Render Origin Pulse Pin for Selected Auto
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (!selectedAuto) {
-      if (selectedOriginMarkerRef.current) {
-        selectedOriginMarkerRef.current.remove();
-        selectedOriginMarkerRef.current = null;
-      }
-      return;
-    }
-
-    if (!selectedOriginMarkerRef.current) {
-      const el = document.createElement("div");
-      el.className = "pointer-events-none z-20 -translate-x-1/2 -translate-y-1/2";
-      el.innerHTML = `
-        <div class="relative flex h-5 w-5 items-center justify-center">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-600 border-2 border-white"></span>
-        </div>
-      `;
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([selectedAuto.lng, selectedAuto.lat])
-        .addTo(map);
-      selectedOriginMarkerRef.current = marker;
-    } else {
-      selectedOriginMarkerRef.current.setLngLat([selectedAuto.lng, selectedAuto.lat]);
-    }
-  }, [selectedAuto?.driverId, selectedAuto?.lat, selectedAuto?.lng]);
-
-  // 5. Route Line for Selected Auto
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-
-    const routeSource = map.getSource("selected-route") as mapboxgl.GeoJSONSource;
-    if (!routeSource) return;
-
-    const currentAuto = autosRef.current.find((a) => a.driverId === selectedAutoId) || null;
-
-    if (!currentAuto || !currentAuto.showDestination || !currentAuto.destination) {
-      activeRouteCoordsRef.current = [];
-      routeSource.setData({ type: "FeatureCollection", features: [] });
-      return;
-    }
-
-    const fetchRoute = async () => {
-      try {
-        const { lng: startLng, lat: startLat } = currentAuto;
-        const { lng: endLng, lat: endLat } = currentAuto.destination!;
-        if (!endLng || !endLat) {
-          activeRouteCoordsRef.current = [];
-          routeSource.setData({ type: "FeatureCollection", features: [] });
-          return;
-        }
-
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${startLng},${startLat};${endLng},${endLat}?geometries=geojson&overview=full&access_token=${mapboxToken}`;
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (data.routes?.[0]?.geometry?.coordinates) {
-          const roadCoords: [number, number][] = data.routes[0].geometry.coordinates;
-          // Prepend exact current [startLng, startLat] to eliminate visual gap to marker
-          const snappedCoords: [number, number][] = [[startLng, startLat], ...roadCoords];
-          activeRouteCoordsRef.current = snappedCoords;
-
-          routeSource.setData({
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "LineString",
-              coordinates: snappedCoords,
-            },
-          });
-        } else {
-          // Direct line fallback with intermediate interpolation
-          const steps = 15;
-          const fallbackCoords: [number, number][] = [];
-          for (let i = 0; i <= steps; i++) {
-            const t = i / steps;
-            fallbackCoords.push([
-              startLng + (endLng - startLng) * t,
-              startLat + (endLat - startLat) * t,
-            ]);
-          }
-          activeRouteCoordsRef.current = fallbackCoords;
-
-          routeSource.setData({
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "LineString",
-              coordinates: fallbackCoords,
-            },
-          });
-        }
-      } catch (err) {
-        console.error("Failed to fetch route:", err);
-      }
-    };
-
-    fetchRoute();
-  }, [selectedAutoId, mapLoaded, mapboxToken]);
-
-  // 6. Mock Movement Loop OR Live Socket.io Connection
+  // 4. Mock Movement Loop OR Live Socket.io Connection
   useEffect(() => {
     if (useMockMode) {
       const interval = setInterval(() => {
         setAutos((prev) => {
-          let updatedRouteLine = false;
-
           const nextAutos = prev.map((a) => {
-            // If this auto is selected and we have road route coordinates to follow
             if (a.driverId === selectedAutoId && activeRouteCoordsRef.current.length > 1) {
               const nextCoord = activeRouteCoordsRef.current[1];
-              // Advance along the road and slice the first element off
               activeRouteCoordsRef.current = activeRouteCoordsRef.current.slice(1);
-              updatedRouteLine = true;
               return {
                 ...a,
                 lng: nextCoord[0],
@@ -439,28 +387,12 @@ export default function PassengerRadarPage() {
               };
             }
 
-            // For unselected autos, reduced realistic drift so they don't wander off-road
             return {
               ...a,
               lat: a.lat + (Math.random() - 0.49) * 0.00012,
               lng: a.lng + (Math.random() - 0.49) * 0.00012,
             };
           });
-
-          // Keep the blue route polyline locked to the moving auto without visual gap
-          if (updatedRouteLine && mapRef.current) {
-            const routeSource = mapRef.current.getSource("selected-route") as mapboxgl.GeoJSONSource;
-            if (routeSource && activeRouteCoordsRef.current.length > 0) {
-              routeSource.setData({
-                type: "Feature",
-                properties: {},
-                geometry: {
-                  type: "LineString",
-                  coordinates: activeRouteCoordsRef.current,
-                },
-              });
-            }
-          }
 
           return nextAutos;
         });
@@ -489,26 +421,66 @@ export default function PassengerRadarPage() {
     }
   }, [useMockMode, userPos, selectedAutoId]);
 
-  // 7. Geocoding Autocomplete Search
+  // 5. Geocoding / Landmark Autocomplete Search
   const handleSearchChange = async (value: string) => {
     setSearchQuery(value);
-    if (value.trim().length < 3 || !mapboxToken) {
+    if (!value.trim()) {
       setSearchSuggestions([]);
       return;
     }
-    try {
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-        value
-      )}.json?proximity=${userPos.lng},${userPos.lat}&country=IN&limit=4&access_token=${mapboxToken}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      setSearchSuggestions(data.features || []);
-    } catch {
+
+    // First: Match local NIT Calicut campus landmarks
+    const lower = value.toLowerCase();
+    const localMatches = CAMPUS_LOCATIONS.filter(
+      (loc) => loc.text.toLowerCase().includes(lower) || loc.place_name.toLowerCase().includes(lower)
+    );
+
+    if (localMatches.length > 0) {
+      setSearchSuggestions(localMatches);
+      return;
+    }
+
+    // Second: Search using Mapbox (if token) or Free OpenStreetMap Nominatim (Zero API Key)
+    if (value.trim().length >= 3) {
+      if (mapboxToken) {
+        try {
+          const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+            value
+          )}.json?proximity=${userPos.lng},${userPos.lat}&country=IN&limit=4&access_token=${mapboxToken}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.features && data.features.length > 0) {
+            setSearchSuggestions(data.features);
+            return;
+          }
+        } catch {
+          // fallback to Nominatim
+        }
+      }
+
+      // 100% Free OpenStreetMap Nominatim geocoder (No API key required)
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+          value
+        )}&format=json&limit=5&countrycodes=IN`;
+        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const data = await res.json();
+        const formatted = (data || []).map((item: any) => ({
+          id: String(item.place_id),
+          text: item.display_name.split(",")[0],
+          place_name: item.display_name,
+          center: [parseFloat(item.lon), parseFloat(item.lat)],
+        }));
+        setSearchSuggestions(formatted);
+      } catch {
+        setSearchSuggestions([]);
+      }
+    } else {
       setSearchSuggestions([]);
     }
   };
 
-  // 8. Use Hardware GPS Button
+  // 6. Use Hardware GPS Button
   const handleUseGPS = () => {
     if (!("geolocation" in navigator)) return;
     navigator.geolocation.getCurrentPosition(
@@ -525,7 +497,7 @@ export default function PassengerRadarPage() {
     );
   };
 
-  // 9. Virtual Handwave ("Ping Driver")
+  // 7. Virtual Handwave ("Ping Driver")
   const handlePingDriver = (driverId: string) => {
     setPingedDrivers((prev) => ({ ...prev, [driverId]: true }));
     socketRef.current?.emit("passenger:ping_driver", {
@@ -546,254 +518,485 @@ export default function PassengerRadarPage() {
     : 4;
 
   return (
-    <main className="relative w-full h-[100dvh] overflow-hidden bg-slate-950 select-none font-sans">
-      {/* ==================== LAYER 1: TOP FLOATING COMMAND BAR ==================== */}
-      <header className="fixed top-4 left-1/2 -translate-x-1/2 max-w-md w-[calc(100%-2rem)] z-30 bg-white/95 backdrop-blur-md shadow-xl px-4 pt-3.5 pb-3.5 rounded-2xl border border-slate-200">
-        {/* Brand Header & Mode Switch */}
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xl font-black tracking-tight text-slate-900">
-              Spot<span className="text-blue-700">Hail</span>
+    <div className="w-full h-screen flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
+      {/* ====================================================================== */}
+      {/* 1. DESKTOP FULL-WIDTH TOP NAVIGATION BAR                               */}
+      {/* ====================================================================== */}
+      <header className="h-16 w-full bg-slate-900 border-b border-slate-800 px-4 md:px-6 flex items-center justify-between shrink-0 z-30 shadow-md">
+        {/* Brand & Campus Title */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-black tracking-tight text-white">
+              Spot<span className="text-blue-500">Hail</span>
             </span>
-            <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-              2km Radar
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              NIT Calicut Radar
             </span>
           </div>
 
-          <button
-            onClick={() => setUseMockMode(!useMockMode)}
-            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition ${
-              useMockMode
-                ? "bg-amber-50 text-amber-800 border-amber-300"
-                : socketConnected
-                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                : "bg-red-50 text-red-700 border-red-300"
-            }`}
-          >
-            <Radio className="w-3.5 h-3.5" />
-            {useMockMode ? "Demo Radar" : socketConnected ? "Live Server" : "Connecting..."}
-          </button>
+          {/* Quick Telemetry Counters for Desktop */}
+          <div className="hidden lg:flex items-center gap-2 pl-4 border-l border-slate-800 text-xs">
+            <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <strong>{autos.length}</strong> Autos in 2km
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <strong>{emptyCount}</strong> Empty (Instant Board)
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-400 font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <strong>{hasSpaceCount}</strong> With Space
+            </span>
+          </div>
         </div>
 
-        {/* Search Input + GPS Button */}
-        <div className="relative flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Where are you standing?"
-              className="w-full pl-9 pr-20 py-2.5 text-sm bg-slate-100 text-slate-900 rounded-full border border-slate-300 focus:outline-none focus:border-blue-600 focus:bg-white"
-            />
+        {/* View Mode & Actions Toolbar */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* View Mode switcher — Leaflet Real Map / Transit Radar / Mapbox 3D */}
+          <div className="flex items-center p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold">
             <button
-              onClick={handleUseGPS}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full bg-white text-blue-700 border border-blue-600 text-xs font-bold shadow-sm hover:bg-blue-50 active:scale-95 transition"
-            >
-              <LocateFixed className="w-3.5 h-3.5" />
-              GPS
-            </button>
-          </div>
-        </div>
-
-        {/* Autocomplete Dropdown */}
-        {searchSuggestions.length > 0 && (
-          <div className="mt-1 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-            {searchSuggestions.map((place) => (
-              <button
-                key={place.id}
-                onClick={() => {
-                  const [lng, lat] = place.center;
-                  setUserPos({ lat, lng });
-                  setSearchQuery(place.text);
-                  setSearchSuggestions([]);
-                  mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.2 });
-                }}
-                className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-100 flex items-center gap-2 border-b last:border-none"
-              >
-                <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span className="truncate">{place.place_name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Horizontal 1-Tap Filter Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar mt-2.5 pb-0.5">
-          <button
-            onClick={() => setFilterMode("ALL")}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border transition ${
-              filterMode === "ALL"
-                ? "bg-blue-900 text-white border-blue-900"
-                : "bg-white text-slate-700 border-slate-300"
-            }`}
-          >
-            All Nearby ({filteredAutos.length})
-          </button>
-
-          <button
-            onClick={() => setFilterMode("EMPTY")}
-            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition ${
-              filterMode === "EMPTY"
-                ? "bg-emerald-600 text-white border-emerald-600"
-                : "bg-white text-slate-700 border-emerald-500"
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            Empty Only
-          </button>
-
-          <button
-            onClick={() => setFilterMode("HAS_SPACE")}
-            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition ${
-              filterMode === "HAS_SPACE"
-                ? "bg-amber-500 text-slate-950 border-amber-500"
-                : "bg-white text-slate-700 border-amber-400"
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-            Has Space
-          </button>
-
-          <button
-            onClick={() => setFilterMode("DESTINATION")}
-            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border transition ${
-              filterMode === "DESTINATION"
-                ? "bg-blue-700 text-white border-blue-700"
-                : "bg-white text-slate-700 border-slate-300"
-            }`}
-          >
-            <MapPin className="w-3 h-3" />
-            Going To...
-          </button>
-        </div>
-
-        {/* Optional Destination Filter Input */}
-        {filterMode === "DESTINATION" && (
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="text"
-              value={destinationFilterText}
-              onChange={(e) => setDestinationFilterText(e.target.value)}
-              placeholder="Filter by route (e.g., Main Gate, Kunnamangalam)..."
-              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-blue-300 rounded-lg text-slate-900 focus:outline-none"
-            />
-          </div>
-        )}
-      </header>
-
-      {/* ==================== LAYER 2: LIVE MAPBOX RADAR CANVAS ==================== */}
-      {!mapboxToken ? (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center">
-          <p className="text-lg font-bold mb-2">Mapbox Token Required</p>
-          <p className="text-xs text-slate-300 max-w-xs">
-            Paste your <code className="text-amber-400">NEXT_PUBLIC_MAPBOX_TOKEN</code> inside{" "}
-            <code className="text-amber-400">/passenger-app/.env.local</code> and restart{" "}
-            <code className="text-amber-400">npm run dev</code>.
-          </p>
-        </div>
-      ) : (
-        <div ref={mapContainerRef} className="w-full h-full" />
-      )}
-
-      {/* ==================== LAYER 3: BOTTOM INSPECTION & PING DRAWER ==================== */}
-      {selectedAuto && (
-        <section className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-md w-[calc(100%-2rem)] z-30 bg-white rounded-3xl shadow-2xl border border-slate-200 px-5 pt-3.5 pb-5 transition-transform duration-300">
-          {/* Drag Handle & Close */}
-          <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-2.5" />
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🛺</span>
-              <h2 className="text-lg font-extrabold text-slate-900">
-                {selectedAuto.label || selectedAuto.name || selectedAuto.driverId}
-              </h2>
-            </div>
-            <button
-              onClick={() => setSelectedAutoId(null)}
-              className="p-1 rounded-full text-slate-400 hover:bg-slate-100"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Distance Pill + Seat Dots Pill */}
-          <div className="flex flex-wrap items-center gap-2 mt-2.5">
-            <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-800 text-xs font-bold">
-              {selectedAuto.distanceMeters ?? 350}m away •{" "}
-              {Math.max(1, Math.round((selectedAuto.distanceMeters ?? 350) / 220))}m out
-            </span>
-
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-                selectedOccupancy >= selectedCapacity
-                  ? "bg-red-100 text-red-800"
-                  : selectedOccupancy === 0
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-amber-100 text-amber-900"
+              onClick={() => setViewMode("LEAFLET")}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
+                viewMode === "LEAFLET"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
               }`}
             >
-              <span>{selectedCapacity - selectedOccupancy} Seats Left (</span>
-              <span className="tracking-widest">
-                {Array.from({ length: selectedCapacity }).map((_, idx) =>
-                  idx < selectedOccupancy ? "●" : "○"
-                )}
-              </span>
-              <span>)</span>
-            </span>
+              <MapIcon className="w-3.5 h-3.5" />
+              <span>Live Map</span>
+            </button>
+            <button
+              onClick={() => setViewMode("RADAR")}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
+                viewMode === "RADAR"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5" />
+              <span>Transit Radar</span>
+            </button>
+            <button
+              onClick={() => {
+                if (!mapboxToken) {
+                  setTokenModalOpen(true);
+                } else {
+                  setViewMode("MAPBOX");
+                }
+              }}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${
+                viewMode === "MAPBOX"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Mapbox 3D</span>
+            </button>
           </div>
 
-          {/* Destination / Route Line Info */}
-          <div className="flex items-center gap-2 mt-3 text-xs text-slate-700">
-            <Navigation className="w-4 h-4 text-blue-600 shrink-0" />
-            {selectedAuto.showDestination && selectedAuto.destination ? (
-              <span>
-                Heading to: <strong className="text-slate-900">{selectedAuto.destination.name}</strong>
-                {selectedAuto.destination.via && (
+          {/* Demo Simulation Toggle */}
+          <button
+            onClick={() => setUseMockMode(!useMockMode)}
+            className={`hidden sm:flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition ${
+              useMockMode
+                ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                : socketConnected
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                : "bg-red-500/10 text-red-400 border-red-500/30"
+            }`}
+            title={useMockMode ? "Simulated Corridor Fleet" : "Live Backend WebSockets"}
+          >
+            <span className={`w-2 h-2 rounded-full ${useMockMode ? "bg-amber-400" : socketConnected ? "bg-emerald-400" : "bg-red-400"}`} />
+            <span>{useMockMode ? "Demo Mode" : socketConnected ? "Live Server" : "Connecting..."}</span>
+          </button>
+
+          {/* External link to Driver Cockpit */}
+          <a
+            href="http://localhost:3001"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition shadow-sm"
+            title="Open Driver Cockpit in new tab"
+          >
+            <span>Driver HUD</span>
+            <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+          </a>
+        </div>
+      </header>
+
+      {/* ====================================================================== */}
+      {/* 2. DESKTOP RESPONSIVE SPLIT SCREEN LAYOUT                              */}
+      {/* ====================================================================== */}
+      <div className="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative">
+        {/* ==================================================================== */}
+        {/* LEFT DESKTOP SIDEBAR / DISPATCH PANEL (w-full lg:w-[460px] xl:w-[500px]) */}
+        {/* ==================================================================== */}
+        <aside className="w-full lg:w-[460px] xl:w-[500px] h-full flex flex-col bg-slate-900 border-r border-slate-800/80 shrink-0 z-20 overflow-hidden shadow-2xl">
+          {/* Search Location Bar */}
+          <div className="p-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Where are you standing? (e.g. Main Gate, MBB)..."
+                className="w-full pl-9 pr-20 py-2.5 text-xs sm:text-sm bg-slate-950 text-white rounded-xl border border-slate-700 focus:outline-none focus:border-blue-500 transition"
+              />
+              <button
+                onClick={handleUseGPS}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-sm transition active:scale-95"
+              >
+                <LocateFixed className="w-3.5 h-3.5" />
+                <span>GPS</span>
+              </button>
+            </div>
+
+            {/* Instant Landmark Chips */}
+            <div className="flex items-center gap-1.5 mt-2.5 overflow-x-auto no-scrollbar">
+              <span className="text-[10px] font-bold uppercase text-slate-500 shrink-0">Quick:</span>
+              {CAMPUS_LOCATIONS.slice(0, 4).map((loc) => (
+                <button
+                  key={loc.id}
+                  onClick={() => {
+                    const [lng, lat] = loc.center;
+                    setUserPos({ lat, lng });
+                    setSearchQuery(loc.text);
+                    setSearchSuggestions([]);
+                    mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.2 });
+                  }}
+                  className="shrink-0 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700/60 transition"
+                >
+                  {loc.text}
+                </button>
+              ))}
+            </div>
+
+            {/* Autocomplete Dropdown */}
+            {searchSuggestions.length > 0 && (
+              <div className="mt-2 bg-slate-950 rounded-xl shadow-2xl border border-slate-700 overflow-hidden divide-y divide-slate-800">
+                {searchSuggestions.map((place) => (
+                  <button
+                    key={place.id}
+                    onClick={() => {
+                      const [lng, lat] = place.center;
+                      setUserPos({ lat, lng });
+                      setSearchQuery(place.text);
+                      setSearchSuggestions([]);
+                      mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.2 });
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2.5 transition"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="font-bold text-white truncate">{place.text}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{place.place_name}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 1-Tap Filter Row */}
+          <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/50 flex flex-col gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+              <button
+                onClick={() => setFilterMode("ALL")}
+                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                  filterMode === "ALL"
+                    ? "bg-blue-600 text-white border-blue-500 shadow-md"
+                    : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
+                }`}
+              >
+                All Nearby ({filteredAutos.length})
+              </button>
+
+              <button
+                onClick={() => setFilterMode("EMPTY")}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                  filterMode === "EMPTY"
+                    ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
+                    : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                Empty Only
+              </button>
+
+              <button
+                onClick={() => setFilterMode("HAS_SPACE")}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                  filterMode === "HAS_SPACE"
+                    ? "bg-amber-600 text-white border-amber-500 shadow-md"
+                    : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                Has Space
+              </button>
+
+              <button
+                onClick={() => setFilterMode("DESTINATION")}
+                className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                  filterMode === "DESTINATION"
+                    ? "bg-blue-600 text-white border-blue-500 shadow-md"
+                    : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                Going To...
+              </button>
+            </div>
+
+            {filterMode === "DESTINATION" && (
+              <input
+                type="text"
+                value={destinationFilterText}
+                onChange={(e) => setDestinationFilterText(e.target.value)}
+                placeholder="Filter by destination (e.g. Main Gate, Kattangal)..."
+                className="w-full px-3 py-1.5 text-xs bg-slate-950 border border-blue-500/50 rounded-lg text-white focus:outline-none"
+              />
+            )}
+          </div>
+
+          {/* Hero Selected Auto Card */}
+          {selectedAuto && (
+            <div className="p-4 border-b border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl p-2 rounded-xl bg-slate-800 border border-slate-700 shadow-inner">🛺</span>
+                  <div>
+                    <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                      <span>{selectedAuto.label || selectedAuto.name || selectedAuto.driverId}</span>
+                      {selectedAuto.registrationNumber && (
+                        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          {selectedAuto.registrationNumber}
+                        </span>
+                      )}
+                    </h2>
+                    <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                      <span>Driver: {selectedAuto.name || "Stand Driver"}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedAutoId(null)}
+                  className="p-1 rounded-full text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition"
+                  title="Deselect"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Status Badges: Distance & Tactile Seats Indicator */}
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="px-3 py-1 rounded-full bg-slate-800 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5">
+                  <Clock className="w-3 h-3 text-blue-400" />
+                  <span>{selectedAuto.distanceMeters ?? 350}m away</span>
+                  <span className="text-slate-500">•</span>
+                  <span>~{Math.max(1, Math.round((selectedAuto.distanceMeters ?? 350) / 220))}m ETA</span>
+                </span>
+
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-extrabold flex items-center gap-1.5 border ${
+                    selectedOccupancy >= selectedCapacity
+                      ? "bg-rose-950/40 text-rose-300 border-rose-500/30"
+                      : selectedOccupancy === 0
+                      ? "bg-emerald-950/40 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-950/40 text-amber-300 border-amber-500/30"
+                  }`}
+                >
+                  <span>{selectedCapacity - selectedOccupancy} Seats Available</span>
+                  <span className="font-mono tracking-widest text-sm">
+                    (
+                    {Array.from({ length: selectedCapacity }).map((_, idx) =>
+                      idx < selectedOccupancy ? "●" : "○"
+                    )}
+                    )
+                  </span>
+                </span>
+              </div>
+
+              {/* Destination / Route Info */}
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 mb-3 text-xs text-slate-300 flex items-start gap-2">
+                <Navigation className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                <div>
+                  {selectedAuto.showDestination && selectedAuto.destination ? (
+                    <div>
+                      <span className="text-slate-400">Heading to: </span>
+                      <strong className="text-white font-bold">{selectedAuto.destination.name}</strong>
+                      {selectedAuto.destination.via && (
+                        <span className="text-slate-400"> via <strong className="text-slate-200">{selectedAuto.destination.via}</strong></span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="italic text-slate-400">
+                      Local / Roaming (Free standby auto at stand)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Primary Thumb-Zone CTA: Virtual Handwave */}
+              <button
+                disabled={
+                  selectedOccupancy >= selectedCapacity ||
+                  Boolean(pingedDrivers[selectedAuto.driverId])
+                }
+                onClick={() => handlePingDriver(selectedAuto.driverId)}
+                className={`w-full py-3 rounded-xl font-extrabold text-sm shadow-xl flex items-center justify-center gap-2 transition active:scale-98 ${
+                  pingedDrivers[selectedAuto.driverId]
+                    ? "bg-emerald-600 text-white shadow-emerald-600/30"
+                    : selectedOccupancy >= selectedCapacity
+                    ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30 hover:shadow-blue-500/50"
+                }`}
+              >
+                {pingedDrivers[selectedAuto.driverId] ? (
                   <>
-                    {" "}
-                    via <strong className="text-slate-900">{selectedAuto.destination.via}</strong>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                    <span>Driver Notified! Waiting for Pickup</span>
+                  </>
+                ) : selectedOccupancy >= selectedCapacity ? (
+                  <span>Auto Currently Full (4/4)</span>
+                ) : (
+                  <>
+                    <Hand className="w-4 h-4 text-amber-300" />
+                    <span>Ping Driver (Wait for Me)</span>
                   </>
                 )}
-              </span>
-            ) : (
-              <span className="italic text-slate-500">
-                Destination hidden by driver (Local / Roaming)
-              </span>
-            )}
-          </div>
+              </button>
+            </div>
+          )}
 
-          {/* Primary Thumb-Zone CTA: Virtual Handwave */}
-          <button
-            disabled={
-              selectedOccupancy >= selectedCapacity ||
-              Boolean(pingedDrivers[selectedAuto.driverId])
-            }
-            onClick={() => handlePingDriver(selectedAuto.driverId)}
-            className={`mt-4 w-full py-3.5 rounded-full font-extrabold text-sm shadow-lg flex items-center justify-center gap-2 transition active:scale-98 ${
-              pingedDrivers[selectedAuto.driverId]
-                ? "bg-emerald-600 text-white"
-                : selectedOccupancy >= selectedCapacity
-                ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                : "bg-blue-700 hover:bg-blue-800 text-white"
-            }`}
-          >
-            {pingedDrivers[selectedAuto.driverId] ? (
-              <>
-                <CheckCircle2 className="w-4 h-4" />
-                Driver Notified! Watch the Map
-              </>
-            ) : selectedOccupancy >= selectedCapacity ? (
-              "Auto Currently Full (4/4)"
-            ) : (
-              <>
-                <Hand className="w-4 h-4 text-amber-300" />
-                Ping Driver (Wait for Me)
-              </>
-            )}
-          </button>
-        </section>
-      )}
-    </main>
+          {/* Scrollable Nearby Autos Directory */}
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60 p-3 space-y-2">
+            <div className="flex items-center justify-between px-1 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider">
+              <span>Nearby Fleet ({filteredAutos.length})</span>
+              <span>Sorted by Proximity</span>
+            </div>
+
+            {filteredAutos.map((auto) => {
+              const occ = auto.occupancy ?? auto.occupiedSeats ?? 0;
+              const cap = auto.maxCapacity ?? auto.totalSeats ?? 4;
+              const isSelected = auto.driverId === selectedAutoId;
+              const isEmpty = occ === 0;
+              const isFull = occ >= cap;
+
+              let badgeStyle = "bg-amber-400/10 text-amber-400 border-amber-400/20";
+              if (isEmpty) badgeStyle = "bg-emerald-400/10 text-emerald-400 border-emerald-400/20";
+              else if (isFull) badgeStyle = "bg-rose-400/10 text-rose-400 border-rose-400/20";
+
+              return (
+                <div
+                  key={auto.driverId}
+                  onClick={() => setSelectedAutoId(auto.driverId)}
+                  className={`p-3.5 rounded-2xl cursor-pointer transition border ${
+                    isSelected
+                      ? "bg-blue-950/40 border-blue-500/60 shadow-lg shadow-blue-900/20"
+                      : "bg-slate-900/70 border-slate-800/70 hover:bg-slate-850 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🛺</span>
+                      <div>
+                        <div className="font-extrabold text-sm text-white flex items-center gap-2">
+                          <span>{auto.label || auto.driverId}</span>
+                          {auto.name && (
+                            <span className="text-xs text-slate-400 font-normal">({auto.name})</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${badgeStyle}`}>
+                      {isEmpty ? "Empty" : isFull ? "Full" : `${cap - occ} Seats Left`}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span>{auto.distanceMeters ?? 400}m away</span>
+                      <span>•</span>
+                      <span>~{Math.max(1, Math.round((auto.distanceMeters ?? 400) / 220))}m ETA</span>
+                    </div>
+
+                    {auto.destination?.name ? (
+                      <div className="text-slate-300 font-semibold truncate max-w-[180px]">
+                        → {auto.destination.name}
+                      </div>
+                    ) : (
+                      <span className="italic text-slate-500">Roaming</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* ==================================================================== */}
+        {/* RIGHT MAIN DESKTOP CANVAS (LEAFLET REAL MAP / RADAR / MAPBOX)       */}
+        {/* ==================================================================== */}
+        <main className="flex-1 h-full relative overflow-hidden bg-[#030712]">
+          {viewMode === "LEAFLET" ? (
+            <LeafletMap
+              initialCenter={DEFAULT_CENTER}
+              center={userPos}
+              userLocation={userPos}
+              initialZoom={15}
+              showSearch={false}
+              showGPS={true}
+              defaultTheme="streets"
+              onLocationChange={(latlng, label) => {
+                setUserPos(latlng);
+                setSearchQuery(label.split(",").slice(0, 2).join(",").trim());
+              }}
+              extraMarkers={filteredAutos.map((auto) => {
+                const occ = auto.occupancy ?? auto.occupiedSeats ?? 0;
+                const cap = auto.maxCapacity ?? auto.totalSeats ?? 4;
+                return {
+                  id: auto.driverId,
+                  lat: auto.lat,
+                  lng: auto.lng,
+                  label: `${auto.label || auto.driverId} [${occ}/${cap}]`,
+                  color:
+                    occ === 0 ? "green" : occ >= cap ? "red" : "amber",
+                  popup: `<b>🛺 ${auto.label || auto.driverId}</b><br/>${occ}/${cap} seats<br/>${
+                    auto.destination?.name ?? "Roaming"
+                  }`,
+                };
+              })}
+              className="w-full h-full"
+            />
+          ) : viewMode === "RADAR" || !mapboxToken ? (
+            <RadarMapCanvas
+              center={DEFAULT_CENTER}
+              userPos={userPos}
+              autos={filteredAutos}
+              selectedAutoId={selectedAutoId}
+              onSelectAuto={(id) => setSelectedAutoId(id)}
+              onOpenTokenModal={() => setTokenModalOpen(true)}
+              hasMapboxToken={Boolean(mapboxToken)}
+            />
+          ) : (
+            <div ref={mapContainerRef} className="w-full h-full" />
+          )}
+        </main>
+      </div>
+
+      {/* Mapbox Token Modal Dialog */}
+      <MapboxTokenModal
+        isOpen={tokenModalOpen}
+        onClose={() => setTokenModalOpen(false)}
+        onSaveToken={handleSaveToken}
+        currentToken={mapboxToken}
+      />
+    </div>
   );
 }
