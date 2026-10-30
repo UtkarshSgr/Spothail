@@ -1,4 +1,5 @@
-export type SeatStatus = 'EMPTY' | 'HAS_SPACE' | 'FULL';
+export type VehicleType = 'AUTO' | 'BUS';
+export type OccupancyStatus = 'EMPTY' | 'HAS_SPACE' | 'FULL';
 
 export interface DestinationInfo {
   name: string;
@@ -7,52 +8,28 @@ export interface DestinationInfo {
   lng?: number;
 }
 
-export interface AutoDriver {
-  driverId: string;
-  id?: string;
-  label?: string;
-  name?: string;
+export interface TransitVehicle {
+  id: string;
+  type: VehicleType;
+  label: string;
+  routeNumber?: string;
+  driverName?: string;
   registrationNumber?: string;
   lat: number;
   lng: number;
-  occupancy: number;
-  maxCapacity: number;
-  occupiedSeats?: number;
-  totalSeats?: number;
+  occupancy: number; // current passengers
+  maxCapacity: number; // total seats/capacity
   heading?: number;
-  showDestination?: boolean;
   destination?: DestinationInfo | null;
   distanceMeters?: number;
   lastUpdated?: string | number;
 }
 
-export type FilterType = 'ALL' | 'EMPTY' | 'HAS_SPACE' | 'SEARCH_DESTINATION';
-export type FilterMode = 'ALL' | 'EMPTY' | 'HAS_SPACE' | 'DESTINATION';
+export type VehicleFilter = 'ALL' | 'AUTO' | 'BUS';
+export type OccupancyFilter = 'ALL' | 'EMPTY' | 'HAS_SPACE';
 
-export interface PingState {
-  driverId: string;
-  timestamp: number;
-  status: 'PENDING' | 'ACCEPTED' | 'EXPIRED';
-  cooldownSeconds: number;
-}
-
-/**
- * Helper to compute SeatStatus given occupied and total seats
- */
-export function getSeatStatus(
-  occupiedSeats: number,
-  totalSeats: number = 4
-): SeatStatus {
-  if (occupiedSeats <= 0) return 'EMPTY';
-  if (occupiedSeats < totalSeats) return 'HAS_SPACE';
-  return 'FULL';
-}
-
-/**
- * Helper to get available seats count
- */
-export function getAvailableSeats(driver: AutoDriver): number {
-  const max = driver.maxCapacity ?? driver.totalSeats ?? 4;
-  const occ = driver.occupancy ?? driver.occupiedSeats ?? 0;
-  return Math.max(0, max - occ);
+export function getOccupancyStatus(occupancy: number, maxCapacity: number): OccupancyStatus {
+  if (occupancy <= 0) return 'EMPTY';
+  if (occupancy >= maxCapacity) return 'FULL';
+  return 'HAS_SPACE';
 }
