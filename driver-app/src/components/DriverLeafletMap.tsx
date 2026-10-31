@@ -139,42 +139,30 @@ export function DriverLeafletMap({
     mapRef.current.setView([driverLat, driverLng], 15.5, { animate: true });
   }, [recenterTrigger, driverLat, driverLng]);
 
-  // ── Driver Position Marker (Clean SVG Badges) ───────────────────────────
+  // ── Driver Position Marker (Uploaded Vehicle Icon) ─────────────────────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
     const isERickshaw = vehicleType === "ERICKSHAW";
     const labelTitle = isERickshaw ? "Your E-Rickshaw" : "Your Auto";
-
-    const vehicleSvg = isERickshaw
-      ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="11" width="18" height="6" rx="2"/>
-          <path d="M5 11l2-5h10l2 5"/>
-          <circle cx="7" cy="17" r="2"/>
-          <circle cx="17" cy="17" r="2"/>
-        </svg>`
-      : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 17h16M5 12h14M7 7h10l2 5v5H5v-5l2-5z"/>
-          <circle cx="7.5" cy="17.5" r="1.5"/>
-          <circle cx="16.5" cy="17.5" r="1.5"/>
-        </svg>`;
+    const vehicleImageSrc = isERickshaw ? "/icons/erickshaw.jpg" : "/icons/auto.jpg";
 
     const badgeLabel = isERickshaw
-      ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#059669;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
+      ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#0284c7;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
       : `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#d97706;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">AUTO</span>`;
 
     const icon = L.current.divIcon({
       html: `
-        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;">
-          <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.35);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
-          <div style="position:relative;width:36px;height:36px;border-radius:50%;background:#0f172a;border:2.5px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;">
-            ${vehicleSvg}
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:48px;height:48px;">
+          <div style="position:absolute;width:48px;height:48px;border-radius:50%;background:rgba(59,130,246,0.35);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+          <div style="position:relative;width:40px;height:40px;border-radius:50%;background:#ffffff;border:2.5px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;overflow:hidden;padding:2px;">
+            <img src="${vehicleImageSrc}" alt="${labelTitle}" style="width:100%;height:100%;object-fit:contain;border-radius:50%;" />
             ${badgeLabel}
           </div>
         </div>
       `,
-      iconSize: [44, 44],
-      iconAnchor: [22, 22],
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
       className: "",
     });
 

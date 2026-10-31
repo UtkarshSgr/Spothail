@@ -333,16 +333,12 @@ export default function PassengerAppPage() {
         {/* Header: Vehicle icon, title, reg number, close */}
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold shrink-0">
-              {vehicle.type === "ERICKSHAW" ? (
-                <span className="text-[10px] font-black tracking-wider text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/40">
-                  EV
-                </span>
-              ) : (
-                <span className="text-[10px] font-black tracking-wider text-amber-400 bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/40">
-                  AUTO
-                </span>
-              )}
+            <div className="w-12 h-12 rounded-2xl bg-white border border-slate-600 flex items-center justify-center p-1 overflow-hidden shrink-0 shadow-md">
+              <img
+                src={vehicle.type === "ERICKSHAW" ? "/icons/erickshaw.jpg" : "/icons/auto.jpg"}
+                alt={vehicle.label}
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -768,16 +764,14 @@ export default function PassengerAppPage() {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        {v.type === "ERICKSHAW" ? (
-                          <span className="text-[9px] font-black tracking-wider text-emerald-400 bg-emerald-950/90 px-1.5 py-0.5 rounded border border-emerald-500/40">
-                            EV
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-black tracking-wider text-amber-400 bg-amber-950/90 px-1.5 py-0.5 rounded border border-amber-500/40">
-                            AUTO
-                          </span>
-                        )}
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-white border border-slate-700 flex items-center justify-center p-0.5 overflow-hidden shrink-0 shadow-sm">
+                          <img
+                            src={v.type === "ERICKSHAW" ? "/icons/erickshaw.jpg" : "/icons/auto.jpg"}
+                            alt={v.label}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                         <span className="font-extrabold text-xs text-white">{v.label}</span>
                       </div>
 

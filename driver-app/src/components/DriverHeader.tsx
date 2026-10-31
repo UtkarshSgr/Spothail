@@ -79,24 +79,26 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                 triggerHaptics?.();
                 setVehicleType("AUTO");
               }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition ${
+              className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
                 vehicleType === "AUTO" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
               }`}
               title="Auto Rickshaw (3-4 seats)"
             >
-              <span>Auto</span>
+              <img src="/icons/auto.jpg" alt="Auto" className="w-4 h-4 rounded-full object-contain bg-white" />
+              <span className="hidden sm:inline">Auto</span>
             </button>
             <button
               onClick={() => {
                 triggerHaptics?.();
                 setVehicleType("ERICKSHAW");
               }}
-              className={`px-2.5 py-1 rounded-lg font-bold transition ${
+              className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
                 vehicleType === "ERICKSHAW" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
               }`}
               title="E-Rickshaw (3-4 seats)"
             >
-              <span>E-Rick</span>
+              <img src="/icons/erickshaw.jpg" alt="E-Rickshaw" className="w-4 h-4 rounded-full object-contain bg-white" />
+              <span className="hidden sm:inline">E-Rick</span>
             </button>
           </div>
         </div>

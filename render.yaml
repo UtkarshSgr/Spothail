@@ -49,3 +49,4 @@ services:
           type: web
           name: spothail-backend
           property: host
+
