@@ -1,4 +1,4 @@
-@import 'mapbox-gl/dist/mapbox-gl.css';
+@import 'leaflet/dist/leaflet.css';
 
 @tailwind base;
 @tailwind components;
@@ -57,28 +57,15 @@ select,
   background: rgba(148, 163, 184, 0.6);
 }
 
-/* Mapbox GL Override for Seamless Dark Canvas */
-.mapboxgl-map {
-  font-family: inherit;
+/* Leaflet Container Default Styling */
+.leaflet-container {
   width: 100%;
   height: 100%;
+  font-family: inherit;
+  background: #030712;
 }
 
-.mapboxgl-ctrl-bottom-left,
-.mapboxgl-ctrl-bottom-right {
-  margin-bottom: env(safe-area-inset-bottom, 16px);
-}
-
-.mapboxgl-ctrl-attrib {
-  display: none !important;
-}
-
-.mapboxgl-marker {
-  width: max-content !important;
-  height: max-content !important;
-}
-
-/* Transit Seat Radar Pulse */
+/* Pulse animation for markers */
 @keyframes pulse-ring {
   0% {
     transform: scale(0.7);

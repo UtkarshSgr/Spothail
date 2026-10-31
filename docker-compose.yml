@@ -42,6 +42,31 @@ services:
     networks:
       - spothail-network
 
+  driver-app:
+    build:
+      context: ./driver-app
+      dockerfile: Dockerfile
+    container_name: spothail-driver-app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - WATCHPACK_POLLING=true
+      - NEXT_PUBLIC_SOCKET_SERVER_URL=http://localhost:4000
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+    env_file:
+      - path: ./driver-app/.env.local
+        required: false
+    volumes:
+      - ./driver-app:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - spothail-network
+
 networks:
   spothail-network:
     driver: bridge

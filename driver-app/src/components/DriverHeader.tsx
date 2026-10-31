@@ -9,19 +9,19 @@ import {
   Eye,
   EyeOff,
   Bell,
-  Flame,
+  Zap,
 } from "lucide-react";
-import { SeatCapacity } from "@/types/spothail";
+import { SeatCapacity, VehicleType } from "@/types/spothail";
 
 export interface DriverHeaderProps {
   isOnline: boolean;
   setIsOnline: (val: boolean) => void;
+  vehicleType: VehicleType;
+  setVehicleType: (type: VehicleType) => void;
   maxSeats: SeatCapacity;
   setMaxSeats: (seats: SeatCapacity) => void;
   showDestination: boolean;
   setShowDestination: (show: boolean) => void;
-  showHeatmap?: boolean;
-  setShowHeatmap?: React.Dispatch<React.SetStateAction<boolean>>;
   onSimulatePing?: () => void;
   triggerHaptics?: () => void;
   isSettingsOpen?: boolean;
@@ -31,18 +31,17 @@ export interface DriverHeaderProps {
 export const DriverHeader: React.FC<DriverHeaderProps> = ({
   isOnline,
   setIsOnline,
+  vehicleType,
+  setVehicleType,
   maxSeats,
   setMaxSeats,
   showDestination,
   setShowDestination,
-  showHeatmap,
-  setShowHeatmap,
   onSimulatePing,
   triggerHaptics,
   isSettingsOpen: externalIsSettingsOpen,
   setIsSettingsOpen: externalSetIsSettingsOpen,
 }) => {
-  // Support both internal and controlled settings drawer state
   const [internalIsSettingsOpen, setInternalIsSettingsOpen] = useState(false);
   const isSettingsOpen =
     externalIsSettingsOpen !== undefined
@@ -61,96 +60,122 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
     setMaxSeats(capacity);
   };
 
-  const handleSetDestinationPrivacy = (show: boolean) => {
-    triggerHaptics?.();
-    setShowDestination(show);
-  };
-
   return (
     <>
       {/* ====================================================================== */}
-      {/* TOP HEADER COMMAND STRIP                                              */}
+      {/* TOP COMMAND BAR WITH PROMINENT "BROADCASTING GPS" TOGGLE               */}
       {/* ====================================================================== */}
-      <header className="absolute top-0 left-0 right-0 z-40 bg-[#1C1C1E] px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-        {/* Left: SpotHail Branding & Compact Status Pill (Live / Offline Toggle) */}
-        <div className="flex items-center gap-2.5">
+      <header className="absolute top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md px-3.5 py-2 border-b border-slate-800 flex items-center justify-between shadow-lg">
+        {/* Left: Branding & Vehicle Selector */}
+        <div className="flex items-center gap-2">
           <span className="text-sm font-black tracking-tight text-white select-none">
             Spot<span className="text-blue-500">Hail</span>
           </span>
 
-          <button
-            onClick={handleToggleOnline}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-semibold hover:bg-zinc-700 active:scale-95 transition"
-            aria-label={
-              isOnline
-                ? "Status: Live (Tap to go offline)"
-                : "Status: Offline (Tap to go live)"
-            }
-            title={isOnline ? "Live - Tap to go offline" : "Offline - Tap to go live"}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isOnline ? "bg-green-500" : "bg-red-500"
+          {/* Quick Vehicle Type Toggle (Auto vs E-Rickshaw) */}
+          <div className="flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
+            <button
+              onClick={() => {
+                triggerHaptics?.();
+                setVehicleType("AUTO");
+              }}
+              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                vehicleType === "AUTO" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
               }`}
-            />
-            <span className={isOnline ? "text-white" : "text-zinc-300"}>
-              {isOnline ? "Live" : "Offline"}
-            </span>
-          </button>
+              title="Auto Rickshaw (3-4 seats)"
+            >
+              <span>🛺</span>
+              <span className="hidden sm:inline">Auto</span>
+            </button>
+            <button
+              onClick={() => {
+                triggerHaptics?.();
+                setVehicleType("ERICKSHAW");
+              }}
+              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                vehicleType === "ERICKSHAW" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
+              title="E-Rickshaw (3-4 seats)"
+            >
+              <span>⚡</span>
+              <span className="hidden sm:inline">E-Rick</span>
+            </button>
+          </div>
         </div>
 
-        {/* Right: Action Controls (Heatmap & Settings) */}
-        <div className="flex items-center gap-2">
-          {/* Heatmap Toggle */}
-          {setShowHeatmap && (
-            <button
-              onClick={() => setShowHeatmap((prev) => !prev)}
-              className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1 transition ${
-                showHeatmap
-                  ? "bg-zinc-800 text-yellow-400 border-yellow-400"
-                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-yellow-400 hover:bg-zinc-700"
-              }`}
-              title="Toggle Commuter Heatmap"
-            >
-              <Flame
-                className={`w-4 h-4 ${
-                  showHeatmap ? "text-yellow-400" : "text-zinc-400"
-                }`}
-              />
-            </button>
-          )}
+        {/* Center: Large Prominent "Broadcasting GPS" Toggle */}
+        <button
+          onClick={handleToggleOnline}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-2xl text-xs font-black shadow-lg transition-all active:scale-95 border ${
+            isOnline
+              ? "bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white shadow-emerald-900/40"
+              : "bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-300"
+          }`}
+          aria-label={isOnline ? "Broadcasting GPS: ON" : "Broadcasting GPS: OFF"}
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${
+              isOnline
+                ? "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] animate-pulse"
+                : "bg-slate-500"
+            }`}
+          />
+          <span>{isOnline ? "Broadcasting GPS (LIVE)" : "Turn On GPS Broadcast"}</span>
+        </button>
 
-          {/* Gear Settings Button */}
+        {/* Right: Quick Capacity Selector (3 or 4) & Settings */}
+        <div className="flex items-center gap-1.5">
+          {/* Quick Capacity Toggle */}
+          <div className="flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs font-mono font-bold">
+            <button
+              onClick={() => handleSetCapacity(3)}
+              className={`px-2 py-1 rounded-lg transition ${
+                maxSeats === 3 ? "bg-amber-500 text-slate-950 shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
+              title="3 Seats capacity"
+            >
+              3S
+            </button>
+            <button
+              onClick={() => handleSetCapacity(4)}
+              className={`px-2 py-1 rounded-lg transition ${
+                maxSeats === 4 ? "bg-amber-500 text-slate-950 shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
+              title="4 Seats capacity"
+            >
+              4S
+            </button>
+          </div>
+
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded-xl bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700 active:scale-95 transition"
+            className="p-1.5 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 hover:text-white hover:bg-slate-750 transition active:scale-95"
             aria-label="Open settings"
           >
-            <Settings className="w-4 h-4 text-white" />
+            <Settings className="w-4 h-4" />
           </button>
         </div>
       </header>
 
       {/* ====================================================================== */}
-      {/* SLIDE-IN SETTINGS DRAWER                                               */}
+      {/* SETTINGS DRAWER                                                        */}
       {/* ====================================================================== */}
       {isSettingsOpen && (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end justify-center"
           onClick={() => setIsSettingsOpen(false)}
         >
           <div
-            className="w-full max-w-lg bg-slate-900 border-t border-slate-800 rounded-t-3xl p-5 shadow-2xl animate-in slide-in-from-bottom-5"
+            className="w-full max-w-lg bg-slate-900 border-t border-slate-800 rounded-t-3xl p-5 shadow-2xl animate-in slide-in-from-bottom-5 text-white"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drawer Drag Handle & Header */}
             <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto mb-3" />
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-black text-white">HUD Cockpit Settings</h3>
+                <h3 className="text-base font-black text-white">Driver HUD Controls</h3>
               </div>
               <button
                 onClick={() => setIsSettingsOpen(false)}
@@ -161,98 +186,91 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
               </button>
             </div>
 
-            {/* Section 1: Broadcasting Status Toggle */}
+            {/* Vehicle Type Selector */}
             <div className="py-3.5 border-b border-slate-800">
               <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                Radar Visibility
+                Vehicle Type
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
                     triggerHaptics?.();
-                    setIsOnline(true);
+                    setVehicleType("AUTO");
                   }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
-                    isOnline
-                      ? "bg-green-700 text-white border-green-700"
-                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                  className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
+                    vehicleType === "AUTO"
+                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
-                  <Radio className="w-4 h-4" />
-                  <span>🟢 Online (Broadcast)</span>
+                  <span className="text-base">🛺</span>
+                  <span>Auto Rickshaw</span>
                 </button>
                 <button
                   onClick={() => {
                     triggerHaptics?.();
-                    setIsOnline(false);
+                    setVehicleType("ERICKSHAW");
                   }}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
-                    !isOnline
-                      ? "bg-red-800 text-zinc-100 border-red-800"
-                      : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                  className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-2 transition ${
+                    vehicleType === "ERICKSHAW"
+                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
-                  <span>⚫ Offline (Hidden)</span>
+                  <span className="text-base">⚡</span>
+                  <span>E-Rickshaw</span>
                 </button>
               </div>
             </div>
 
-            {/* Section 2: Dynamic Seating Capacity Selector */}
+            {/* Dynamic Seating Capacity Selector (3 or 4 Seats) */}
             <div className="py-3.5 border-b border-slate-800">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold uppercase text-slate-400 block">
                   Vehicle Seating Capacity
                 </label>
                 <span className="text-xs font-black text-amber-400">
-                  {maxSeats} Seats
+                  {maxSeats} Passenger Seats
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleSetCapacity(3)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
+                  className={`py-2.5 px-3 rounded-2xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
                     maxSeats === 3
                       ? "bg-blue-600 text-white border-blue-400 shadow-md"
                       : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
                   <Users className="w-4 h-4" />
-                  <span>3 Seats (Standard)</span>
+                  <span>3 Seats (Standard Auto)</span>
                 </button>
                 <button
                   onClick={() => handleSetCapacity(4)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
+                  className={`py-2.5 px-3 rounded-2xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
                     maxSeats === 4
                       ? "bg-blue-600 text-white border-blue-400 shadow-md"
                       : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
                   <Users className="w-4 h-4" />
-                  <span>4 Seats (Shared)</span>
-                </button>
-                <button
-                  onClick={() => handleSetCapacity(6)}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${
-                    maxSeats === 6
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>6 Seats (E-Rickshaw)</span>
+                  <span>4 Seats (Shared Auto / E-Rick)</span>
                 </button>
               </div>
             </div>
 
-            {/* Section 3: Privacy Route Toggle */}
+            {/* Destination Public Visibility Toggle */}
             <div className="py-3.5 border-b border-slate-800">
               <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
                 Corridor Route Privacy
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => handleSetDestinationPrivacy(true)}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
+                  onClick={() => {
+                    triggerHaptics?.();
+                    setShowDestination(true);
+                  }}
+                  className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
                     showDestination
                       ? "bg-blue-700 text-white border-blue-500 shadow-md"
                       : "bg-slate-800 text-slate-400 border-slate-700"
@@ -262,8 +280,11 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                   <span>👁️ Public Route</span>
                 </button>
                 <button
-                  onClick={() => handleSetDestinationPrivacy(false)}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
+                  onClick={() => {
+                    triggerHaptics?.();
+                    setShowDestination(false);
+                  }}
+                  className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
                     !showDestination
                       ? "bg-slate-700 text-white border-slate-500 shadow-md"
                       : "bg-slate-800 text-slate-400 border-slate-700"
@@ -275,18 +296,18 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
               </div>
             </div>
 
-            {/* Section 4: Demo Simulator Controls */}
+            {/* Diagnostics Sound + Haptics Test */}
             {onSimulatePing && (
               <div className="pt-3.5">
                 <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                  Demo & Audio Diagnostics
+                  Diagnostics Test
                 </label>
                 <button
                   onClick={onSimulatePing}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl flex items-center justify-center gap-2 active:scale-95 transition"
+                  className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-xl flex items-center justify-center gap-2 active:scale-95 transition"
                 >
-                  <Bell className="w-5 h-5 text-slate-950" />
-                  <span>🔔 Simulate Passenger Ping (Sound + Vibrate)</span>
+                  <Bell className="w-4 h-4 text-white" />
+                  <span>Test Passenger Handwave Alert (Sound + Haptics)</span>
                 </button>
               </div>
             )}

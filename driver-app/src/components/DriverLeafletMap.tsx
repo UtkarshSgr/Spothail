@@ -1,21 +1,30 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { VehicleType } from "@/types/spothail";
 
 interface DriverLeafletMapProps {
   driverLat: number;
   driverLng: number;
   driverHeading?: number;
-  destination?: { name: string; via?: string; center?: [number, number] } | null;
+  vehicleType?: VehicleType;
+  destination?: { name: string; via?: string; center?: [number, number]; lat?: number; lng?: number } | null;
+  routePolyline?: [number, number][] | null;
   pings?: Array<{ lat: number; lng: number; timestamp?: number; id?: string }>;
+  isMinimized?: boolean;
+  recenterTrigger?: number;
   className?: string;
 }
 
 export function DriverLeafletMap({
   driverLat,
   driverLng,
+  vehicleType = "AUTO",
   destination,
+  routePolyline = null,
   pings = [],
+  isMinimized,
+  recenterTrigger,
   className = "w-full h-full",
 }: DriverLeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,6 +32,8 @@ export function DriverLeafletMap({
   const tileLayerRef = useRef<any>(null);
   const driverMarkerRef = useRef<any>(null);
   const destMarkerRef = useRef<any>(null);
+  const routeLineRef = useRef<any>(null);
+  const routeCasingRef = useRef<any>(null);
   const pingMarkersRef = useRef<any[]>([]);
   const L = useRef<any>(null);
 
@@ -43,8 +54,7 @@ export function DriverLeafletMap({
       const satLayer = L.current.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         {
-          attribution:
-            '&copy; <a href="https://www.esri.com/" target="_blank">Esri</a>, Maxar, Earthstar Geographics',
+          attribution: '&copy; <a href="https://www.esri.com/" target="_blank">Esri</a>',
           maxZoom: 19,
         }
       );
@@ -54,8 +64,7 @@ export function DriverLeafletMap({
       const osmLayer = L.current.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>',
           maxZoom: 19,
         }
       );
@@ -82,16 +91,12 @@ export function DriverLeafletMap({
         center: [driverLat, driverLng],
         zoom: 15.5,
         zoomControl: false,
-        attributionControl: true,
+        attributionControl: false,
       });
 
       const initialLayer = leaflet.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
-          maxZoom: 19,
-        }
+        { maxZoom: 19 }
       );
       initialLayer.addTo(map);
       tileLayerRef.current = initialLayer;
@@ -112,39 +117,65 @@ export function DriverLeafletMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Invalidate Size on Cockpit Toggle ────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const interval = setInterval(() => {
+      mapRef.current?.invalidateSize();
+    }, 50);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      mapRef.current?.invalidateSize();
+    }, 350);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [isMinimized]);
+
+  // ── Re-center Trigger ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current || !recenterTrigger) return;
+    mapRef.current.setView([driverLat, driverLng], 15.5, { animate: true });
+  }, [recenterTrigger, driverLat, driverLng]);
+
   // ── Driver Position Marker ───────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
+    const iconEmoji = vehicleType === "ERICKSHAW" ? "⚡" : "🛺";
+    const labelTitle = vehicleType === "ERICKSHAW" ? "Your E-Rickshaw" : "Your Auto";
+
     const icon = L.current.divIcon({
       html: `
-        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;">
-          <div style="position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(59,130,246,0.3);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
-          <div style="position:relative;width:32px;height:32px;border-radius:50%;background:#1d4ed8;border:2.5px solid #ffffff;box-shadow:0 4px 12px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:16px;">
-            🛺
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;">
+          <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.35);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+          <div style="position:relative;width:34px;height:34px;border-radius:50%;background:#1d4ed8;border:2.5px solid #ffffff;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:17px;">
+            ${iconEmoji}
           </div>
         </div>
       `,
-      iconSize: [40, 40],
-      iconAnchor: [20, 20],
+      iconSize: [44, 44],
+      iconAnchor: [22, 22],
       className: "",
     });
 
     if (driverMarkerRef.current) {
       driverMarkerRef.current.setLatLng([driverLat, driverLng]);
+      driverMarkerRef.current.setIcon(icon);
     } else {
       driverMarkerRef.current = L.current
         .marker([driverLat, driverLng], { icon, zIndexOffset: 2000 })
         .addTo(mapRef.current)
         .bindPopup(
           `<div style="font-family:sans-serif;font-size:12px;font-weight:bold;color:#1e40af">
-            🛺 Your Auto (Driver HUD)
+            ${iconEmoji} ${labelTitle} (HUD)
           </div>`
         );
     }
-  }, [driverLat, driverLng, mapReady]);
+  }, [driverLat, driverLng, vehicleType, mapReady]);
 
-  // ── Destination Marker ───────────────────────────────────────────────────
+  // ── Destination Marker & Active Road Polyline (OSRM Road Routing) ───────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
@@ -152,31 +183,76 @@ export function DriverLeafletMap({
       destMarkerRef.current.remove();
       destMarkerRef.current = null;
     }
+    if (routeLineRef.current) {
+      mapRef.current.removeLayer(routeLineRef.current);
+      routeLineRef.current = null;
+    }
+    if (routeCasingRef.current) {
+      mapRef.current.removeLayer(routeCasingRef.current);
+      routeCasingRef.current = null;
+    }
 
-    if (destination?.center) {
-      const [destLng, destLat] = destination.center;
+    const destLat = destination?.lat ?? destination?.center?.[1];
+    const destLng = destination?.lng ?? destination?.center?.[0];
+
+    if (destLat !== undefined && destLng !== undefined && destination) {
       const icon = L.current.divIcon({
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;">
-            <div style="padding:3px 8px;border-radius:8px;background:#0f172a;color:#ffffff;font-size:11px;font-weight:bold;border:1px solid #334155;box-shadow:0 4px 12px rgba(0,0,0,0.4);white-space:nowrap;">
+            <div style="padding:4px 10px;border-radius:10px;background:#0f172a;color:#ffffff;font-size:11px;font-weight:800;border:1px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.5);white-space:nowrap;">
               🎯 ${destination.name}
             </div>
             <div style="width:2px;height:12px;background:#3b82f6;"></div>
             <div style="width:8px;height:8px;border-radius:50%;background:#3b82f6;border:2px solid #ffffff;"></div>
           </div>
         `,
-        iconSize: [120, 40],
-        iconAnchor: [60, 40],
+        iconSize: [140, 44],
+        iconAnchor: [70, 44],
         className: "",
       });
 
       destMarkerRef.current = L.current
         .marker([destLat, destLng], { icon })
         .addTo(mapRef.current);
-    }
-  }, [destination, mapReady]);
 
-  // ── Passenger Ping Markers ───────────────────────────────────────────────
+      // Determine road coordinates: use OSRM polyline if present, otherwise direct curve
+      let latlngs: [number, number][];
+      if (routePolyline && routePolyline.length > 1) {
+        latlngs = routePolyline.map((pt) => [pt[1], pt[0]]);
+      } else {
+        const midLat = (driverLat + destLat) / 2 + 0.0003;
+        const midLng = (driverLng + destLng) / 2 - 0.0003;
+        latlngs = [
+          [driverLat, driverLng],
+          [midLat, midLng],
+          [destLat, destLng],
+        ];
+      }
+
+      // Outer indigo glow casing
+      const casing = L.current.polyline(latlngs, {
+        color: "#4338ca",
+        weight: 8,
+        opacity: 0.4,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      // Inner vibrant driving route line
+      const line = L.current.polyline(latlngs, {
+        color: "#6366f1",
+        weight: 4,
+        opacity: 0.95,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      routeCasingRef.current = casing;
+      routeLineRef.current = line;
+    }
+  }, [destination, routePolyline, driverLat, driverLng, mapReady]);
+
+  // ── Passenger Ping Markers (Digital Handwaves) ───────────────────────────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
@@ -186,12 +262,12 @@ export function DriverLeafletMap({
     pings.forEach((ping) => {
       const icon = L.current.divIcon({
         html: `
-          <div style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.8);font-size:16px;">
+          <div style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.85);font-size:18px;">
             👋
           </div>
         `,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
+        iconSize: [38, 38],
+        iconAnchor: [19, 19],
         className: "",
       });
 
@@ -199,8 +275,8 @@ export function DriverLeafletMap({
         .marker([ping.lat, ping.lng], { icon, zIndexOffset: 1500 })
         .addTo(mapRef.current)
         .bindPopup(
-          `<div style="font-family:sans-serif;font-size:12px">
-            <b style="color:#16a34a">👋 Passenger Handwave!</b><br/>Waiting for pickup
+          `<div style="font-family:sans-serif;font-size:12px;">
+            <b style="color:#16a34a">👋 Passenger Curb Wave!</b><br/>Standing near curb for pickup (~${ping.distanceMeters || 300}m)
           </div>`
         );
 
@@ -224,6 +300,12 @@ export function DriverLeafletMap({
         .dark-tiles .leaflet-tile-pane {
           filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%);
         }
+        .leaflet-control-zoom {
+          border: none !important;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+          border-radius: 12px !important;
+          overflow: hidden;
+        }
         .leaflet-control-zoom a {
           background: #0f172a !important;
           color: #e2e8f0 !important;
@@ -233,19 +315,6 @@ export function DriverLeafletMap({
           background: #1e293b !important;
           color: #ffffff !important;
         }
-        .leaflet-attribution-flag {
-          display: none;
-        }
-        .leaflet-control-attribution {
-          background: rgba(2,6,23,0.7) !important;
-          color: #64748b !important;
-          font-size: 10px;
-          padding: 2px 6px;
-          border-radius: 6px;
-        }
-        .leaflet-control-attribution a {
-          color: #3b82f6 !important;
-        }
       `}</style>
 
       {/* Theme Switcher Pill (Streets / Dark / Satellite - Zero API Key) */}
@@ -253,41 +322,32 @@ export function DriverLeafletMap({
         <button
           type="button"
           onClick={() => changeTheme("streets")}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-            mapTheme === "streets"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-slate-400 hover:text-white"
+          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+            mapTheme === "streets" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
-          title="OpenStreetMap Streets (Zero API Key)"
+          title="OpenStreetMap Streets"
         >
-          <span>🗺️</span>
-          <span>Streets</span>
+          Streets
         </button>
         <button
           type="button"
           onClick={() => changeTheme("dark")}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-            mapTheme === "dark"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-slate-400 hover:text-white"
+          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+            mapTheme === "dark" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
-          title="Dark Mode (Zero API Key)"
+          title="Dark Mode"
         >
-          <span>🌙</span>
-          <span>Dark</span>
+          Dark
         </button>
         <button
           type="button"
           onClick={() => changeTheme("satellite")}
-          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-            mapTheme === "satellite"
-              ? "bg-blue-600 text-white shadow-sm"
-              : "text-slate-400 hover:text-white"
+          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+            mapTheme === "satellite" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
-          title="Satellite Imagery (Zero API Key)"
+          title="Satellite Imagery"
         >
-          <span>🛰️</span>
-          <span>Satellite</span>
+          Sat
         </button>
       </div>
 

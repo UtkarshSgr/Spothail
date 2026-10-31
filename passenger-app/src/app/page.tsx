@@ -12,11 +12,22 @@ import {
   X,
   Clock,
   ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
+  Layers,
 } from "lucide-react";
-import { TransitVehicle, VehicleFilter, OccupancyFilter, getOccupancyStatus } from "@/types/spothail";
+import {
+  TransitVehicle,
+  VehicleFilter,
+  OccupancyFilter,
+  getOccupancyStatus,
+  getOccupancyTheme,
+} from "@/types/spothail";
 import { MOCK_TRANSIT_VEHICLES } from "@/lib/mockData";
+import { fetchOSRMRoute, getDistanceMeters } from "@/lib/routing";
+import socketService from "@/lib/socket";
 
-// Dynamic import of LeafletMap (SSR-safe, zero API key)
+// Dynamic import of LeafletMap (SSR-safe)
 const LeafletMap = dynamic(
   () => import("@/components/LeafletMap").then((m) => m.LeafletMap),
   {
@@ -33,7 +44,7 @@ const LeafletMap = dynamic(
 // Default center: NIT Calicut
 const DEFAULT_CENTER = { lat: 11.3216, lng: 75.9336 };
 
-// Common corridor landmarks
+// Common corridor landmarks for 1-tap fast geocoding
 const CAMPUS_LOCATIONS = [
   { id: "main-gate", text: "NIT Main Gate", center: [75.9336, 11.3216] },
   { id: "mbb-hostels", text: "Mega Boys Block (MBB)", center: [75.9315, 11.3175] },
@@ -42,63 +53,106 @@ const CAMPUS_LOCATIONS = [
   { id: "kunnamangalam", text: "Kunnamangalam", center: [75.8767, 11.3056] },
 ];
 
-function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
 export default function PassengerAppPage() {
   const [userPos, setUserPos] = useState(DEFAULT_CENTER);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
 
-  // Filters
+  // Map Theme state ("streets" | "dark" | "satellite")
+  const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">("streets");
+  const [isMobileThemeOpen, setIsMobileThemeOpen] = useState(false);
+
+  // Filters (Only Autos & E-Rickshaws)
   const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>("ALL");
   const [occupancyFilter, setOccupancyFilter] = useState<OccupancyFilter>("ALL");
 
-  // Vehicles state
+  // Fleet state
   const [vehicles, setVehicles] = useState<TransitVehicle[]>(MOCK_TRANSIT_VEHICLES);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>("AUTO-02");
   const [pingedDrivers, setPingedDrivers] = useState<Record<string, boolean>>({});
 
-  // Simulated vehicle movement along the corridor
+  // Dynamic Polyline cache for tapped vehicles
+  const [routePolylines, setRoutePolylines] = useState<Record<string, [number, number][]>>({});
+  const [vehicleEtas, setVehicleEtas] = useState<Record<string, number>>({});
+
+  // Mobile / Desktop Drawer collapsed state
+  const [isFleetListOpen, setIsFleetListOpen] = useState(false);
+
+  // Connect to Socket.io to receive live broadcasted drivers
+  useEffect(() => {
+    const socket = socketService.connect();
+
+    socket.on("server:nearby_autos", (liveDrivers: any[]) => {
+      if (!Array.isArray(liveDrivers)) return;
+      setVehicles((prev) => {
+        const liveMap = new Map(
+          liveDrivers.map((d) => [
+            d.driverId,
+            {
+              id: d.driverId,
+              type: d.type || "AUTO",
+              label: d.label || d.driverId,
+              driverName: d.driverName || "Live Driver",
+              registrationNumber: d.registrationNumber || "KL-11-LIVE",
+              lat: d.lat,
+              lng: d.lng,
+              occupancy: d.occupancy ?? 0,
+              maxCapacity: d.maxCapacity ?? 4,
+              destination: d.destination,
+              routePolyline: d.routePolyline,
+              lastUpdated: Date.now(),
+            } as TransitVehicle,
+          ])
+        );
+
+        const updated = prev.filter((v) => !liveMap.has(v.id));
+        return [...Array.from(liveMap.values()), ...updated];
+      });
+    });
+
+    return () => {
+      socket.off("server:nearby_autos");
+    };
+  }, []);
+
+  // Ambient vehicle movement simulation for mock vehicles
   useEffect(() => {
     const interval = setInterval(() => {
       setVehicles((prev) =>
-        prev.map((v) => ({
-          ...v,
-          lat: v.lat + (Math.random() - 0.49) * 0.00015,
-          lng: v.lng + (Math.random() - 0.49) * 0.00015,
-        }))
+        prev.map((v) => {
+          if (v.id.startsWith("AUTO-") || v.id.startsWith("ERICK-")) {
+            return {
+              ...v,
+              lat: v.lat + (Math.random() - 0.49) * 0.00014,
+              lng: v.lng + (Math.random() - 0.49) * 0.00014,
+            };
+          }
+          return v;
+        })
       );
     }, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  // Filtered vehicles within 2km with calculated distances
+  // Filtered vehicles within 2km with Haversine distance
   const filteredVehicles = useMemo(() => {
     return vehicles
       .map((v) => ({
         ...v,
         distanceMeters: getDistanceMeters(userPos.lat, userPos.lng, v.lat, v.lng),
       }))
-      .filter((v) => (v.distanceMeters ?? 0) <= 2000)
+      .filter((v) => (v.distanceMeters ?? 0) <= 2500)
       .filter((v) => {
         if (vehicleFilter === "AUTO" && v.type !== "AUTO") return false;
-        if (vehicleFilter === "BUS" && v.type !== "BUS") return false;
+        if (vehicleFilter === "ERICKSHAW" && v.type !== "ERICKSHAW") return false;
 
         const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
         if (occupancyFilter === "EMPTY" && status !== "EMPTY") return false;
         if (occupancyFilter === "HAS_SPACE" && status === "FULL") return false;
 
         return true;
-      });
+      })
+      .sort((a, b) => (a.distanceMeters ?? 0) - (b.distanceMeters ?? 0));
   }, [vehicles, userPos, vehicleFilter, occupancyFilter]);
 
   const selectedVehicle = useMemo(
@@ -106,21 +160,45 @@ export default function PassengerAppPage() {
     [vehicles, selectedVehicleId]
   );
 
-  // Active route polyline to draw on the map when a vehicle is tapped
-  const activeRoutePolyline = useMemo(() => {
-    if (!selectedVehicle || !selectedVehicle.destination) return null;
+  // Dynamic OSRM Route Generation when a vehicle is selected
+  useEffect(() => {
+    if (!selectedVehicle || !selectedVehicle.destination) return;
+
+    if (selectedVehicle.routePolyline && selectedVehicle.routePolyline.length > 1) {
+      setRoutePolylines((prev) => ({
+        ...prev,
+        [selectedVehicle.id]: selectedVehicle.routePolyline!,
+      }));
+      return;
+    }
+
     const destLat = selectedVehicle.destination.lat ?? selectedVehicle.lat;
     const destLng = selectedVehicle.destination.lng ?? selectedVehicle.lng;
 
-    // Draw route connecting vehicle to its destination
-    return [
-      [selectedVehicle.lng, selectedVehicle.lat],
-      [(selectedVehicle.lng + destLng) / 2 + 0.0004, (selectedVehicle.lat + destLat) / 2 - 0.0003],
-      [destLng, destLat],
-    ] as [number, number][];
+    let mounted = true;
+    fetchOSRMRoute(
+      { lat: selectedVehicle.lat, lng: selectedVehicle.lng },
+      { lat: destLat, lng: destLng }
+    ).then((route) => {
+      if (!mounted) return;
+      setRoutePolylines((prev) => ({
+        ...prev,
+        [selectedVehicle.id]: route.coordinates,
+      }));
+      setVehicleEtas((prev) => ({
+        ...prev,
+        [selectedVehicle.id]: route.durationMinutes,
+      }));
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, [selectedVehicle]);
 
-  // Search handler (local campus chips + OpenStreetMap Nominatim geocoding)
+  const activeRoutePolyline = selectedVehicle ? routePolylines[selectedVehicle.id] ?? null : null;
+
+  // Search geocoder (Local chips + OpenStreetMap Nominatim)
   const handleSearchChange = async (value: string) => {
     setSearchQuery(value);
     if (!value.trim()) {
@@ -169,134 +247,153 @@ export default function PassengerAppPage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setSearchQuery("My Location (GPS)");
       },
       () => {},
       { enableHighAccuracy: true }
     );
   };
 
-  const handlePingDriver = (vehicleId: string) => {
+  // Optional Digital Wave (Signals driver on curb)
+  const handleWaveAtDriver = (vehicleId: string) => {
     setPingedDrivers((prev) => ({ ...prev, [vehicleId]: true }));
+
+    const socket = socketService.getSocket();
+    if (socket?.connected) {
+      socket.emit("passenger:ping_driver", {
+        targetDriverId: vehicleId,
+        passengerLat: userPos.lat,
+        passengerLng: userPos.lng,
+      });
+    }
+
     setTimeout(() => {
       setPingedDrivers((prev) => ({ ...prev, [vehicleId]: false }));
-    }, 20000);
+    }, 25000);
   };
 
   return (
-    <div className="w-full h-screen flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
-      {/* ── MINIMAL TOP BAR ─────────────────────────────────────────────────── */}
-      <header className="h-14 w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 md:px-6 flex items-center justify-between shrink-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xl font-black tracking-tight text-white">
-              Spot<span className="text-blue-500">Hail</span>
-            </span>
-          </div>
-          <span className="text-xs text-slate-400 hidden sm:inline border-l border-slate-700 pl-3">
-            Live local transit • No booking
-          </span>
-        </div>
+    <div className="relative w-full h-[100dvh] overflow-hidden bg-slate-950 font-sans select-none">
+      {/* ====================================================================== */}
+      {/* 1. FULL-SCREEN INTERACTIVE LEAFLET MAP                                 */}
+      {/* ====================================================================== */}
+      <main className="absolute inset-0 z-0">
+        <LeafletMap
+          initialCenter={DEFAULT_CENTER}
+          center={userPos}
+          userLocation={userPos}
+          initialZoom={15}
+          theme={mapTheme}
+          activeRoutePolyline={activeRoutePolyline}
+          onLocationChange={(latlng, label) => {
+            setUserPos(latlng);
+            setSearchQuery(label.split(",").slice(0, 2).join(",").trim());
+          }}
+          vehicles={filteredVehicles.map((v) => ({
+            id: v.id,
+            type: v.type,
+            lat: v.lat,
+            lng: v.lng,
+            label: v.label,
+            status: getOccupancyStatus(v.occupancy, v.maxCapacity),
+            onClick: () => setSelectedVehicleId(v.id),
+          }))}
+          className="w-full h-full"
+        />
+      </main>
 
-        {/* Legend & Driver HUD link */}
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-3 text-xs text-slate-300 font-semibold bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              <span>Empty</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
-              <span>Partly Full</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-              <span>Full</span>
-            </span>
-          </div>
+      {/* ====================================================================== */}
+      {/* 2. MINIMALIST FLOATING TOP BAR & SEARCH                                 */}
+      {/* ====================================================================== */}
+      <header className="absolute top-3 left-3 right-14 sm:right-6 md:max-w-xl md:mx-auto z-30 pointer-events-none">
+        <div className="pointer-events-auto flex flex-col gap-2">
+          {/* Main Search Pill */}
+          <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl">
+            <div className="flex items-center gap-1.5 pl-2.5 shrink-0">
+              <span className="text-base font-black tracking-tight text-white">
+                Spot<span className="text-blue-500">Hail</span>
+              </span>
+            </div>
 
-          <a
-            href="http://localhost:3001"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition shadow-sm"
-          >
-            <span>Driver Mode</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-          </a>
-        </div>
-      </header>
-
-      {/* ── MAIN RESPONSIVE SPLIT ────────────────────────────────────────────── */}
-      <div className="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative">
-        {/* LEFT MINIMAL SIDEBAR (Fleet & Search) */}
-        <aside className="w-full lg:w-[420px] h-full flex flex-col bg-slate-900 border-r border-slate-800 shrink-0 z-20 overflow-hidden shadow-xl">
-          {/* Search Location Bar */}
-          <div className="p-3 border-b border-slate-800 bg-slate-900">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Where are you standing? (e.g. Main Gate)..."
-                className="w-full pl-9 pr-16 py-2 text-xs sm:text-sm bg-slate-950 text-white rounded-xl border border-slate-700 focus:outline-none focus:border-blue-500 transition"
+                className="w-full pl-8 pr-3 py-1.5 text-xs sm:text-sm bg-slate-950/80 text-white rounded-xl border border-slate-800 focus:outline-none focus:border-blue-500 transition placeholder:text-slate-500"
               />
-              <button
-                onClick={handleUseGPS}
-                className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-sm transition"
-              >
-                <LocateFixed className="w-3.5 h-3.5" />
-                <span>GPS</span>
-              </button>
             </div>
 
+            {/* GPS Re-center */}
+            <button
+              onClick={handleUseGPS}
+              title="Locate me with GPS"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition shrink-0 active:scale-95"
+            >
+              <LocateFixed className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">GPS</span>
+            </button>
+
+            {/* Link to Driver Mode */}
+            <a
+              href="http://localhost:3001"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition shrink-0 flex items-center gap-1 shadow-sm"
+              title="Open Driver Cockpit (Port 3001)"
+            >
+              <span>Driver</span>
+              <ArrowUpRight className="w-3 h-3 text-slate-400" />
+            </a>
+          </div>
+
+          {/* Search Suggestions Dropdown */}
+          {searchSuggestions.length > 0 && (
+            <div className="bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 overflow-hidden divide-y divide-slate-800 max-h-48 overflow-y-auto">
+              {searchSuggestions.map((place) => (
+                <button
+                  key={place.id}
+                  onClick={() => {
+                    const [lng, lat] = place.center;
+                    setUserPos({ lat, lng });
+                    setSearchQuery(place.text);
+                    setSearchSuggestions([]);
+                  }}
+                  className="w-full text-left px-3.5 py-2.5 text-xs text-slate-200 hover:bg-slate-800 flex items-center gap-2.5 transition"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span className="font-bold truncate">{place.text}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Quick Landmark Chips + Vehicle Filter Row */}
+          <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar py-0.5">
             {/* Quick Campus Chips */}
-            <div className="flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar">
-              {CAMPUS_LOCATIONS.map((loc) => (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {CAMPUS_LOCATIONS.slice(0, 3).map((loc) => (
                 <button
                   key={loc.id}
                   onClick={() => {
                     const [lng, lat] = loc.center;
                     setUserPos({ lat, lng });
                     setSearchQuery(loc.text);
-                    setSearchSuggestions([]);
                   }}
-                  className="shrink-0 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700/60 transition"
+                  className="px-2.5 py-1 rounded-xl bg-slate-900/85 backdrop-blur-md hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-700/70 shadow-sm transition whitespace-nowrap"
                 >
                   {loc.text}
                 </button>
               ))}
             </div>
 
-            {/* Suggestions */}
-            {searchSuggestions.length > 0 && (
-              <div className="mt-2 bg-slate-950 rounded-xl shadow-xl border border-slate-700 overflow-hidden divide-y divide-slate-800">
-                {searchSuggestions.map((place) => (
-                  <button
-                    key={place.id}
-                    onClick={() => {
-                      const [lng, lat] = place.center;
-                      setUserPos({ lat, lng });
-                      setSearchQuery(place.text);
-                      setSearchSuggestions([]);
-                    }}
-                    className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2 transition"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <span className="font-bold text-white truncate">{place.text}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Simple Clean Filter Pill */}
-          <div className="px-3 py-2 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between gap-2 text-xs">
-            {/* Vehicle Type Toggle */}
-            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+            {/* Vehicle Type Toggle: All / Autos / E-Rickshaws */}
+            <div className="flex items-center bg-slate-900/90 backdrop-blur-md p-0.5 rounded-xl border border-slate-700/80 shadow-md shrink-0 text-[11px]">
               <button
                 onClick={() => setVehicleFilter("ALL")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                className={`px-2 py-0.5 rounded-lg font-bold transition ${
                   vehicleFilter === "ALL" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
@@ -304,190 +401,344 @@ export default function PassengerAppPage() {
               </button>
               <button
                 onClick={() => setVehicleFilter("AUTO")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                className={`px-2 py-0.5 rounded-lg font-bold transition flex items-center gap-1 ${
                   vehicleFilter === "AUTO" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
-                <span>🛺</span> Autos
+                <span>🛺</span>
+                <span className="hidden sm:inline">Autos</span>
               </button>
               <button
-                onClick={() => setVehicleFilter("BUS")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
-                  vehicleFilter === "BUS" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                onClick={() => setVehicleFilter("ERICKSHAW")}
+                className={`px-2 py-0.5 rounded-lg font-bold transition flex items-center gap-1 ${
+                  vehicleFilter === "ERICKSHAW" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
-                <span>🚌</span> Buses
-              </button>
-            </div>
-
-            {/* Occupancy Filter */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setOccupancyFilter(occupancyFilter === "EMPTY" ? "ALL" : "EMPTY")}
-                className={`px-2.5 py-1 rounded-lg font-bold border transition ${
-                  occupancyFilter === "EMPTY"
-                    ? "bg-emerald-600 text-white border-emerald-500"
-                    : "bg-slate-800 text-slate-300 border-slate-700"
-                }`}
-              >
-                Empty
-              </button>
-              <button
-                onClick={() => setOccupancyFilter(occupancyFilter === "HAS_SPACE" ? "ALL" : "HAS_SPACE")}
-                className={`px-2.5 py-1 rounded-lg font-bold border transition ${
-                  occupancyFilter === "HAS_SPACE"
-                    ? "bg-yellow-600 text-white border-yellow-500"
-                    : "bg-slate-800 text-slate-300 border-slate-700"
-                }`}
-              >
-                Has Space
+                <span>⚡</span>
+                <span className="hidden sm:inline">E-Rick</span>
               </button>
             </div>
           </div>
+        </div>
+      </header>
 
-          {/* Selected Vehicle Card (Shows Route on tap) */}
-          {selectedVehicle && (
-            <div className="p-4 border-b border-slate-800 bg-slate-950 shrink-0">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl p-1.5 rounded-xl bg-slate-800 border border-slate-700">
-                    {selectedVehicle.type === "BUS" ? "🚌" : "🛺"}
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-extrabold text-white flex items-center gap-2">
-                      <span>{selectedVehicle.label}</span>
-                      {selectedVehicle.registrationNumber && (
-                        <span className="font-mono text-[10px] text-slate-400">
-                          {selectedVehicle.registrationNumber}
-                        </span>
-                      )}
-                    </h2>
-                    <p className="text-[11px] text-slate-400">
-                      {selectedVehicle.driverName || "Corridor Stand"}
-                    </p>
-                  </div>
-                </div>
+      {/* ====================================================================== */}
+      {/* 3. TOP-RIGHT STACK: THEME SWITCHER (ABOVE) & OCCUPANCY LEGEND (BELOW)  */}
+      {/* ====================================================================== */}
+      {/* DESKTOP VIEW: Stacked on Top-Right */}
+      <div className="hidden md:flex absolute top-3 right-6 z-30 flex-col items-end gap-2 pointer-events-auto">
+        {/* Map Theme Switcher Pill (Streets / Dark / Satellite) */}
+        <div className="flex items-center bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-xl text-[11px] font-bold">
+          <button
+            type="button"
+            onClick={() => setMapTheme("streets")}
+            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+              mapTheme === "streets"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-white"
+            }`}
+            title="OpenStreetMap Streets"
+          >
+            <span>🗺️</span>
+            <span>Streets</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapTheme("dark")}
+            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+              mapTheme === "dark"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-white"
+            }`}
+            title="Dark Mode"
+          >
+            <span>🌙</span>
+            <span>Dark</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapTheme("satellite")}
+            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+              mapTheme === "satellite"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-white"
+            }`}
+            title="Satellite Imagery"
+          >
+            <span>🛰️</span>
+            <span>Satellite</span>
+          </button>
+        </div>
 
-                <button
-                  onClick={() => setSelectedVehicleId(null)}
-                  className="p-1 rounded-full text-slate-500 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+        {/* Strict 3-Color Occupancy Indicator Legend Pill */}
+        <div className="flex items-center gap-3 text-[11px] font-bold bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-lg text-slate-300">
+          <span className="flex items-center gap-1.5" title="Plenty of seats open">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+            <span>Empty</span>
+          </span>
+          <span className="flex items-center gap-1.5" title="Has space, wave down!">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+            <span>Partly Full</span>
+          </span>
+          <span className="flex items-center gap-1.5" title="Full, don't bother waving">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+            <span>Full</span>
+          </span>
+        </div>
+      </div>
 
-              {/* Status Pill & Distance */}
-              <div className="flex items-center gap-2 mb-2.5">
-                {(() => {
-                  const status = getOccupancyStatus(selectedVehicle.occupancy, selectedVehicle.maxCapacity);
-                  let colorClass = "bg-yellow-500/10 text-yellow-400 border-yellow-500/30";
-                  let text = "Partly Full (Seats Open)";
-                  if (status === "EMPTY") {
-                    colorClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
-                    text = "Empty (Ready to board)";
-                  } else if (status === "FULL") {
-                    colorClass = "bg-rose-500/10 text-rose-400 border-rose-500/30";
-                    text = "Full (No seats)";
-                  }
+      {/* MOBILE VIEW: Collapsible Theme Switcher Button in Top-Right */}
+      <div className="md:hidden absolute top-3 right-3 z-40">
+        <button
+          onClick={() => setIsMobileThemeOpen((prev) => !prev)}
+          className="p-2.5 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 text-blue-400 shadow-2xl flex items-center justify-center active:scale-95 transition"
+          aria-label="Toggle map layer style"
+          title="Change map style"
+        >
+          <Layers className="w-4 h-4" />
+        </button>
 
-                  return (
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${colorClass}`}>
-                      {text}
-                    </span>
-                  );
-                })()}
+        {/* Mobile Dropdown Menu */}
+        {isMobileThemeOpen && (
+          <div className="absolute right-0 mt-2 bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2">
+            <span className="text-[10px] font-black text-slate-400 px-2 py-0.5 uppercase tracking-wider">
+              Map Style
+            </span>
+            <button
+              onClick={() => {
+                setMapTheme("streets");
+                setIsMobileThemeOpen(false);
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+                mapTheme === "streets" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <span>🗺️</span>
+              <span>Streets</span>
+            </button>
+            <button
+              onClick={() => {
+                setMapTheme("dark");
+                setIsMobileThemeOpen(false);
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+                mapTheme === "dark" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <span>🌙</span>
+              <span>Dark</span>
+            </button>
+            <button
+              onClick={() => {
+                setMapTheme("satellite");
+                setIsMobileThemeOpen(false);
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+                mapTheme === "satellite" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <span>🛰️</span>
+              <span>Satellite</span>
+            </button>
+          </div>
+        )}
+      </div>
 
-                <span className="text-xs text-slate-400 flex items-center gap-1 font-semibold">
-                  <Clock className="w-3 h-3 text-blue-400" />
-                  <span>{selectedVehicle.distanceMeters ?? 300}m away</span>
+      {/* ====================================================================== */}
+      {/* 4. TAPPED VEHICLE DETAIL CARD (Clean Bottom Sheet on Mobile / Side Card)*/}
+      {/* ====================================================================== */}
+      {selectedVehicle && (
+        <div className="absolute bottom-4 left-3 right-3 sm:left-6 sm:max-w-md z-30 animate-in slide-in-from-bottom-3 duration-200">
+          <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-3xl p-4 shadow-2xl text-white">
+            {/* Header: Vehicle icon, title, reg number, close */}
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl p-2 rounded-2xl bg-slate-800 border border-slate-700">
+                  {selectedVehicle.type === "ERICKSHAW" ? "⚡" : "🛺"}
                 </span>
-              </div>
-
-              {/* Route Path Notice */}
-              {selectedVehicle.destination ? (
-                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 flex items-start gap-2 mb-3">
-                  <Navigation className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-slate-400">Heading to: </span>
-                    <strong className="text-white">{selectedVehicle.destination.name}</strong>
-                    {selectedVehicle.destination.via && (
-                      <span className="text-slate-400 block text-[11px] mt-0.5">
-                        via {selectedVehicle.destination.via}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-black text-white">{selectedVehicle.label}</h2>
+                    {selectedVehicle.registrationNumber && (
+                      <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                        {selectedVehicle.registrationNumber}
                       </span>
                     )}
                   </div>
+                  <p className="text-[11px] text-slate-400">
+                    {selectedVehicle.driverName || "Corridor Auto"} •{" "}
+                    <span className="capitalize">{selectedVehicle.type.toLowerCase()}</span>
+                  </p>
                 </div>
-              ) : (
-                <div className="text-xs text-slate-500 italic mb-3">Roaming locally along corridor</div>
-              )}
+              </div>
 
-              {/* Digital Wave (Flag Down) CTA */}
               <button
-                disabled={Boolean(pingedDrivers[selectedVehicle.id])}
-                onClick={() => handlePingDriver(selectedVehicle.id)}
-                className={`w-full py-2.5 rounded-xl font-bold text-xs shadow-lg flex items-center justify-center gap-2 transition ${
-                  pingedDrivers[selectedVehicle.id]
-                    ? "bg-emerald-600 text-white"
-                    : "bg-blue-600 hover:bg-blue-500 text-white"
-                }`}
+                onClick={() => setSelectedVehicleId(null)}
+                className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                aria-label="Close vehicle card"
               >
-                {pingedDrivers[selectedVehicle.id] ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                    <span>Driver Flagged! Wave when vehicle approaches</span>
-                  </>
-                ) : (
-                  <>
-                    <Hand className="w-4 h-4 text-yellow-300" />
-                    <span>Flag Down Vehicle (Wave Hand)</span>
-                  </>
-                )}
+                <X className="w-4 h-4" />
               </button>
             </div>
-          )}
 
-          {/* List of Vehicles Nearby (2km) */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800 p-2 space-y-1.5">
-            <div className="px-2 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Nearby ({filteredVehicles.length})</span>
-              <span>Within 2 km</span>
-            </div>
+            {/* Strict 3-Color Occupancy Indicator Badge & Distance */}
+            {(() => {
+              const status = getOccupancyStatus(selectedVehicle.occupancy, selectedVehicle.maxCapacity);
+              const theme = getOccupancyTheme(status);
+              const etaMin =
+                vehicleEtas[selectedVehicle.id] ??
+                selectedVehicle.destination?.etaMinutes ??
+                Math.max(1, Math.round((selectedVehicle.distanceMeters ?? 400) / 250));
 
+              return (
+                <div className="flex items-center justify-between gap-2 mb-3 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-3 h-3 rounded-full shrink-0`}
+                      style={{
+                        backgroundColor: theme.color,
+                        boxShadow: `0 0 10px ${theme.color}`,
+                      }}
+                    />
+                    <div>
+                      <span className={`text-xs font-black ${theme.textColor}`}>
+                        {theme.label} ({selectedVehicle.occupancy}/{selectedVehicle.maxCapacity} Seats)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block leading-tight">
+                        {theme.advice}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-bold text-slate-200 flex items-center justify-end gap-1">
+                      <Clock className="w-3 h-3 text-blue-400" />
+                      <span>~{etaMin} min ETA</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {selectedVehicle.distanceMeters ?? 300}m away
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Route Path (Dynamic Polyline indicator) */}
+            {selectedVehicle.destination ? (
+              <div className="p-2.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-2 mb-3">
+                <Navigation className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-indigo-300 text-[11px] font-bold">Active Path Drawn on Map</span>
+                    <span className="text-[10px] bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/40 font-mono">
+                      OSM Road Routing
+                    </span>
+                  </div>
+                  <strong className="text-white text-xs block mt-0.5">
+                    → {selectedVehicle.destination.name}
+                  </strong>
+                  {selectedVehicle.destination.via && (
+                    <span className="text-slate-400 text-[11px] block">
+                      via {selectedVehicle.destination.via}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 italic mb-3">
+                Roaming locally along corridor
+              </div>
+            )}
+
+            {/* Ping Driver: Optional Digital Wave CTA */}
+            <button
+              disabled={Boolean(pingedDrivers[selectedVehicle.id])}
+              onClick={() => handleWaveAtDriver(selectedVehicle.id)}
+              className={`w-full py-3 rounded-2xl font-black text-xs shadow-xl flex items-center justify-center gap-2 transition active:scale-95 ${
+                pingedDrivers[selectedVehicle.id]
+                  ? "bg-emerald-600 text-white"
+                  : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white"
+              }`}
+            >
+              {pingedDrivers[selectedVehicle.id] ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                  <span>Driver Signaled! Wave your hand when they approach 👋</span>
+                </>
+              ) : (
+                <>
+                  <Hand className="w-4 h-4 text-amber-300" />
+                  <span>Wave at Driver (Signal Curb Pickup)</span>
+                </>
+              )}
+            </button>
+            <p className="text-[10px] text-slate-500 text-center mt-1.5 font-medium">
+              No booking or payment needed • Acts like waving your arm from the curb
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================== */}
+      {/* 5. COLLAPSIBLE NEARBY VEHICLES DRAWER (Mobile & Desktop Accessible)    */}
+      {/* ====================================================================== */}
+      <div
+        className={`hidden lg:flex flex-col absolute top-20 left-6 z-20 w-80 bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl transition-all duration-300 overflow-hidden ${
+          isFleetListOpen ? "max-h-[70vh]" : "max-h-12"
+        }`}
+      >
+        <button
+          onClick={() => setIsFleetListOpen((prev) => !prev)}
+          className="w-full px-4 py-3 flex items-center justify-between text-xs font-black text-white hover:bg-slate-800/60 transition"
+        >
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-blue-400" />
+            <span>Nearby Fleet ({filteredVehicles.length})</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <span className="text-[11px] font-mono">Within 2.5km</span>
+            {isFleetListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {isFleetListOpen && (
+          <div className="p-2 space-y-1.5 overflow-y-auto divide-y divide-slate-800/60 max-h-[calc(70vh-48px)]">
             {filteredVehicles.map((v) => {
               const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
+              const theme = getOccupancyTheme(status);
               const isSelected = v.id === selectedVehicleId;
-              let dotColor = "bg-yellow-400";
-              if (status === "EMPTY") dotColor = "bg-emerald-400";
-              else if (status === "FULL") dotColor = "bg-rose-400";
 
               return (
                 <div
                   key={v.id}
                   onClick={() => setSelectedVehicleId(v.id)}
-                  className={`p-3 rounded-xl cursor-pointer transition border ${
+                  className={`p-2.5 rounded-2xl cursor-pointer transition border ${
                     isSelected
-                      ? "bg-blue-950/50 border-blue-500 shadow-md"
-                      : "bg-slate-900/60 border-slate-800/80 hover:bg-slate-850"
+                      ? "bg-blue-950/60 border-blue-500 shadow-md"
+                      : "bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-base">{v.type === "BUS" ? "🚌" : "🛺"}</span>
-                      <span className="font-extrabold text-sm text-white">{v.label}</span>
+                      <span className="text-sm">{v.type === "ERICKSHAW" ? "⚡" : "🛺"}</span>
+                      <span className="font-extrabold text-xs text-white">{v.label}</span>
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-                      <span className="text-xs font-bold text-slate-300 capitalize">
-                        {status === "EMPTY" ? "Empty" : status === "FULL" ? "Full" : "Partly Full"}
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: theme.color }}
+                      />
+                      <span className={`text-[11px] font-bold ${theme.textColor}`}>
+                        {theme.label} ({v.occupancy}/{v.maxCapacity})
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-400">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span>{v.distanceMeters ?? 300}m away</span>
                     {v.destination?.name ? (
-                      <span className="text-slate-300 font-medium truncate max-w-[180px]">
+                      <span className="text-slate-300 font-medium truncate max-w-[140px]">
                         → {v.destination.name}
                       </span>
                     ) : (
@@ -498,32 +749,7 @@ export default function PassengerAppPage() {
               );
             })}
           </div>
-        </aside>
-
-        {/* RIGHT MAIN MAP (100% Focused Interactive OpenStreetMap) */}
-        <main className="flex-1 h-full relative overflow-hidden bg-[#030712]">
-          <LeafletMap
-            initialCenter={DEFAULT_CENTER}
-            center={userPos}
-            userLocation={userPos}
-            initialZoom={15}
-            activeRoutePolyline={activeRoutePolyline}
-            onLocationChange={(latlng, label) => {
-              setUserPos(latlng);
-              setSearchQuery(label.split(",").slice(0, 2).join(",").trim());
-            }}
-            vehicles={filteredVehicles.map((v) => ({
-              id: v.id,
-              type: v.type,
-              lat: v.lat,
-              lng: v.lng,
-              label: v.label,
-              status: getOccupancyStatus(v.occupancy, v.maxCapacity),
-              onClick: () => setSelectedVehicleId(v.id),
-            }))}
-            className="w-full h-full"
-          />
-        </main>
+        )}
       </div>
     </div>
   );

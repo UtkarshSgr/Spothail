@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'SpotHail | NIT Calicut Transit Radar',
-  description: 'Booking-free real-time visibility radar for unorganized shared transit (autos/e-rickshaws) at NIT Calicut.',
+  title: 'SpotHail | NIT Calicut Local Transit',
+  description: 'Booking-free real-time visibility for unorganized shared transit (autos/e-rickshaws) at NIT Calicut.',
   applicationName: 'SpotHail',
   appleWebApp: {
     capable: true,
@@ -23,14 +23,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en" className="dark">
-      <body
-        className={`${inter.className} h-screen w-screen overflow-hidden antialiased bg-slate-950 text-slate-100`}
-      >
+      <body className={`${inter.className} bg-slate-950 text-slate-100 antialiased overflow-hidden`}>
         {children}
       </body>
     </html>

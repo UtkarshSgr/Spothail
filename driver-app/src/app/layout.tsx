@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'SpotHail Driver HUD | Auto #04',
-  description: 'Tactile real-time cockpit & passenger visibility radar for auto drivers at NIT Calicut.',
+  description: 'Tactile real-time cockpit & passenger visibility dashboard for auto drivers at NIT Calicut.',
   applicationName: 'SpotHail Driver',
   appleWebApp: {
     capable: true,
@@ -26,14 +26,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en" className="dark h-full w-full">
-      <body
-        className={`${inter.className} h-full w-full overflow-hidden touch-none antialiased bg-slate-950 text-slate-100`}
-      >
+    <html lang="en" className="dark h-full">
+      <body className={`${inter.className} h-full bg-slate-950 text-slate-100 antialiased overflow-hidden select-none`}>
         {children}
       </body>
     </html>

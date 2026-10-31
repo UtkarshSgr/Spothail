@@ -1,4 +1,4 @@
-@import 'mapbox-gl/dist/mapbox-gl.css';
+@import 'leaflet/dist/leaflet.css';
 
 @tailwind base;
 @tailwind components;
@@ -33,22 +33,12 @@ select,
   touch-action: manipulation;
 }
 
-/* Ensure Mapbox markers shrink-wrap strictly to content */
-.mapboxgl-marker {
-  width: max-content !important;
-  height: max-content !important;
-}
-
-.mapboxgl-ctrl-attrib {
-  display: none !important;
-}
-
-.mapboxgl-map {
-  overflow: hidden !important;
-}
-
-.mapboxgl-canvas-container {
-  overflow: hidden !important;
+/* Leaflet Container Default Styling */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-family: inherit;
+  background: #030712;
 }
 
 /* Minimal scrollbars */
