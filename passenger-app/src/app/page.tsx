@@ -75,8 +75,8 @@ export default function PassengerAppPage() {
   const [routePolylines, setRoutePolylines] = useState<Record<string, [number, number][]>>({});
   const [vehicleEtas, setVehicleEtas] = useState<Record<string, number>>({});
 
-  // Mobile / Desktop Drawer collapsed state
-  const [isFleetListOpen, setIsFleetListOpen] = useState(false);
+  // Desktop Nearby Fleet open state (default open)
+  const [isFleetListOpen, setIsFleetListOpen] = useState(true);
 
   // Connect to Socket.io to receive live broadcasted drivers
   useEffect(() => {
@@ -270,6 +270,135 @@ export default function PassengerAppPage() {
     setTimeout(() => {
       setPingedDrivers((prev) => ({ ...prev, [vehicleId]: false }));
     }, 25000);
+  };
+
+  // Shared Detail Card Component Content
+  const renderVehicleDetailCard = (vehicle: TransitVehicle) => {
+    const status = getOccupancyStatus(vehicle.occupancy, vehicle.maxCapacity);
+    const theme = getOccupancyTheme(status);
+    const etaMin =
+      vehicleEtas[vehicle.id] ??
+      vehicle.destination?.etaMinutes ??
+      Math.max(1, Math.round((vehicle.distanceMeters ?? 400) / 250));
+
+    return (
+      <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-3xl p-4 shadow-2xl text-white">
+        {/* Header: Vehicle icon, title, reg number, close */}
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl p-2 rounded-2xl bg-slate-800 border border-slate-700">
+              {vehicle.type === "ERICKSHAW" ? "⚡" : "🛺"}
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-black text-white">{vehicle.label}</h2>
+                {vehicle.registrationNumber && (
+                  <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                    {vehicle.registrationNumber}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {vehicle.driverName || "Corridor Auto"} •{" "}
+                <span className="capitalize">{vehicle.type.toLowerCase()}</span>
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setSelectedVehicleId(null)}
+            className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            aria-label="Close vehicle card"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Strict 3-Color Occupancy Indicator Badge & Distance */}
+        <div className="flex items-center justify-between gap-2 mb-3 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+          <div className="flex items-center gap-2">
+            <span
+              className="w-3 h-3 rounded-full shrink-0"
+              style={{
+                backgroundColor: theme.color,
+                boxShadow: `0 0 10px ${theme.color}`,
+              }}
+            />
+            <div>
+              <span className={`text-xs font-black ${theme.textColor}`}>
+                {theme.label} ({vehicle.occupancy}/{vehicle.maxCapacity} Seats)
+              </span>
+              <span className="text-[10px] text-slate-400 block leading-tight">
+                {theme.advice}
+              </span>
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <span className="text-xs font-bold text-slate-200 flex items-center justify-end gap-1">
+              <Clock className="w-3 h-3 text-blue-400" />
+              <span>~{etaMin} min ETA</span>
+            </span>
+            <span className="text-[10px] text-slate-400">
+              {vehicle.distanceMeters ?? 300}m away
+            </span>
+          </div>
+        </div>
+
+        {/* Route Path (Dynamic Polyline indicator) */}
+        {vehicle.destination ? (
+          <div className="p-2.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-2 mb-3">
+            <Navigation className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-indigo-300 text-[11px] font-bold">Active Path Drawn on Map</span>
+                <span className="text-[10px] bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/40 font-mono">
+                  OSM Road Routing
+                </span>
+              </div>
+              <strong className="text-white text-xs block mt-0.5">
+                → {vehicle.destination.name}
+              </strong>
+              {vehicle.destination.via && (
+                <span className="text-slate-400 text-[11px] block">
+                  via {vehicle.destination.via}
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-slate-500 italic mb-3">
+            Roaming locally along corridor
+          </div>
+        )}
+
+        {/* Ping Driver: Optional Digital Wave CTA */}
+        <button
+          disabled={Boolean(pingedDrivers[vehicle.id])}
+          onClick={() => handleWaveAtDriver(vehicle.id)}
+          className={`w-full py-3 rounded-2xl font-black text-xs shadow-xl flex items-center justify-center gap-2 transition active:scale-95 ${
+            pingedDrivers[vehicle.id]
+              ? "bg-emerald-600 text-white"
+              : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white"
+          }`}
+        >
+          {pingedDrivers[vehicle.id] ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+              <span>Driver Signaled! Wave your hand when they approach 👋</span>
+            </>
+          ) : (
+            <>
+              <Hand className="w-4 h-4 text-amber-300" />
+              <span>Wave at Driver (Signal Curb Pickup)</span>
+            </>
+          )}
+        </button>
+        <p className="text-[10px] text-slate-500 text-center mt-1.5 font-medium">
+          No booking or payment needed • Acts like waving your arm from the curb
+        </p>
+      </div>
+    );
   };
 
   return (
@@ -545,212 +674,98 @@ export default function PassengerAppPage() {
       </div>
 
       {/* ====================================================================== */}
-      {/* 4. TAPPED VEHICLE DETAIL CARD (Clean Bottom Sheet on Mobile / Side Card)*/}
+      {/* 4. DESKTOP LEFT DOCK: NEARBY FLEET (STRICTLY ABOVE DETAIL BOX) + CARD */}
       {/* ====================================================================== */}
-      {selectedVehicle && (
-        <div className="absolute bottom-4 left-3 right-3 sm:left-6 sm:max-w-md z-30 animate-in slide-in-from-bottom-3 duration-200">
-          <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-3xl p-4 shadow-2xl text-white">
-            {/* Header: Vehicle icon, title, reg number, close */}
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-2.5">
-                <span className="text-2xl p-2 rounded-2xl bg-slate-800 border border-slate-700">
-                  {selectedVehicle.type === "ERICKSHAW" ? "⚡" : "🛺"}
-                </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-black text-white">{selectedVehicle.label}</h2>
-                    {selectedVehicle.registrationNumber && (
-                      <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
-                        {selectedVehicle.registrationNumber}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    {selectedVehicle.driverName || "Corridor Auto"} •{" "}
-                    <span className="capitalize">{selectedVehicle.type.toLowerCase()}</span>
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setSelectedVehicleId(null)}
-                className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition"
-                aria-label="Close vehicle card"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Strict 3-Color Occupancy Indicator Badge & Distance */}
-            {(() => {
-              const status = getOccupancyStatus(selectedVehicle.occupancy, selectedVehicle.maxCapacity);
-              const theme = getOccupancyTheme(status);
-              const etaMin =
-                vehicleEtas[selectedVehicle.id] ??
-                selectedVehicle.destination?.etaMinutes ??
-                Math.max(1, Math.round((selectedVehicle.distanceMeters ?? 400) / 250));
-
-              return (
-                <div className="flex items-center justify-between gap-2 mb-3 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-3 h-3 rounded-full shrink-0`}
-                      style={{
-                        backgroundColor: theme.color,
-                        boxShadow: `0 0 10px ${theme.color}`,
-                      }}
-                    />
-                    <div>
-                      <span className={`text-xs font-black ${theme.textColor}`}>
-                        {theme.label} ({selectedVehicle.occupancy}/{selectedVehicle.maxCapacity} Seats)
-                      </span>
-                      <span className="text-[10px] text-slate-400 block leading-tight">
-                        {theme.advice}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <span className="text-xs font-bold text-slate-200 flex items-center justify-end gap-1">
-                      <Clock className="w-3 h-3 text-blue-400" />
-                      <span>~{etaMin} min ETA</span>
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {selectedVehicle.distanceMeters ?? 300}m away
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Route Path (Dynamic Polyline indicator) */}
-            {selectedVehicle.destination ? (
-              <div className="p-2.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-2 mb-3">
-                <Navigation className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-indigo-300 text-[11px] font-bold">Active Path Drawn on Map</span>
-                    <span className="text-[10px] bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/40 font-mono">
-                      OSM Road Routing
-                    </span>
-                  </div>
-                  <strong className="text-white text-xs block mt-0.5">
-                    → {selectedVehicle.destination.name}
-                  </strong>
-                  {selectedVehicle.destination.via && (
-                    <span className="text-slate-400 text-[11px] block">
-                      via {selectedVehicle.destination.via}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500 italic mb-3">
-                Roaming locally along corridor
-              </div>
-            )}
-
-            {/* Ping Driver: Optional Digital Wave CTA */}
-            <button
-              disabled={Boolean(pingedDrivers[selectedVehicle.id])}
-              onClick={() => handleWaveAtDriver(selectedVehicle.id)}
-              className={`w-full py-3 rounded-2xl font-black text-xs shadow-xl flex items-center justify-center gap-2 transition active:scale-95 ${
-                pingedDrivers[selectedVehicle.id]
-                  ? "bg-emerald-600 text-white"
-                  : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white"
-              }`}
-            >
-              {pingedDrivers[selectedVehicle.id] ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                  <span>Driver Signaled! Wave your hand when they approach 👋</span>
-                </>
-              ) : (
-                <>
-                  <Hand className="w-4 h-4 text-amber-300" />
-                  <span>Wave at Driver (Signal Curb Pickup)</span>
-                </>
-              )}
-            </button>
-            <p className="text-[10px] text-slate-500 text-center mt-1.5 font-medium">
-              No booking or payment needed • Acts like waving your arm from the curb
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ====================================================================== */}
-      {/* 5. COLLAPSIBLE NEARBY VEHICLES DRAWER (Mobile & Desktop Accessible)    */}
-      {/* ====================================================================== */}
-      <div
-        className={`hidden lg:flex flex-col absolute top-20 left-6 z-20 w-80 bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl transition-all duration-300 overflow-hidden ${
-          isFleetListOpen ? "max-h-[70vh]" : "max-h-12"
-        }`}
-      >
-        <button
-          onClick={() => setIsFleetListOpen((prev) => !prev)}
-          className="w-full px-4 py-3 flex items-center justify-between text-xs font-black text-white hover:bg-slate-800/60 transition"
+      <div className="hidden lg:flex flex-col absolute top-20 left-6 bottom-4 z-30 w-[360px] pointer-events-none justify-end gap-3">
+        {/* Nearby Fleet Box (Flexes to fill space strictly above the detail box) */}
+        <div
+          className={`pointer-events-auto flex flex-col bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
+            isFleetListOpen ? "flex-1 min-h-[140px] max-h-full" : "h-12 shrink-0"
+          }`}
         >
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-blue-400" />
-            <span>Nearby Fleet ({filteredVehicles.length})</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <span className="text-[11px] font-mono">Within 2.5km</span>
-            {isFleetListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </div>
-        </button>
+          {/* Header Toggle */}
+          <button
+            onClick={() => setIsFleetListOpen((prev) => !prev)}
+            className="w-full px-4 py-3 flex items-center justify-between text-xs font-black text-white hover:bg-slate-800/60 transition shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-blue-400" />
+              <span>Nearby Fleet ({filteredVehicles.length})</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <span className="text-[11px] font-mono">Within 2.5km</span>
+              {isFleetListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
 
-        {isFleetListOpen && (
-          <div className="p-2 space-y-1.5 overflow-y-auto divide-y divide-slate-800/60 max-h-[calc(70vh-48px)]">
-            {filteredVehicles.map((v) => {
-              const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
-              const theme = getOccupancyTheme(status);
-              const isSelected = v.id === selectedVehicleId;
+          {/* Smooth Scrollable Vehicle List */}
+          {isFleetListOpen && (
+            <div className="p-2 space-y-1.5 overflow-y-auto divide-y divide-slate-800/60 flex-1 min-h-0">
+              {filteredVehicles.map((v) => {
+                const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
+                const theme = getOccupancyTheme(status);
+                const isSelected = v.id === selectedVehicleId;
 
-              return (
-                <div
-                  key={v.id}
-                  onClick={() => setSelectedVehicleId(v.id)}
-                  className={`p-2.5 rounded-2xl cursor-pointer transition border ${
-                    isSelected
-                      ? "bg-blue-950/60 border-blue-500 shadow-md"
-                      : "bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{v.type === "ERICKSHAW" ? "⚡" : "🛺"}</span>
-                      <span className="font-extrabold text-xs text-white">{v.label}</span>
+                return (
+                  <div
+                    key={v.id}
+                    onClick={() => setSelectedVehicleId(v.id)}
+                    className={`p-2.5 rounded-2xl cursor-pointer transition border ${
+                      isSelected
+                        ? "bg-blue-950/70 border-blue-500 shadow-md"
+                        : "bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{v.type === "ERICKSHAW" ? "⚡" : "🛺"}</span>
+                        <span className="font-extrabold text-xs text-white">{v.label}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: theme.color }}
+                        />
+                        <span className={`text-[11px] font-bold ${theme.textColor}`}>
+                          {theme.label} ({v.occupancy}/{v.maxCapacity})
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: theme.color }}
-                      />
-                      <span className={`text-[11px] font-bold ${theme.textColor}`}>
-                        {theme.label} ({v.occupancy}/{v.maxCapacity})
-                      </span>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>{v.distanceMeters ?? 300}m away</span>
+                      {v.destination?.name ? (
+                        <span className="text-slate-300 font-medium truncate max-w-[140px]">
+                          → {v.destination.name}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 italic">Roaming</span>
+                      )}
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{v.distanceMeters ?? 300}m away</span>
-                    {v.destination?.name ? (
-                      <span className="text-slate-300 font-medium truncate max-w-[140px]">
-                        → {v.destination.name}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 italic">Roaming</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        {/* Selected Vehicle Detail Box (Anchored directly beneath Nearby Fleet) */}
+        {selectedVehicle && (
+          <div className="pointer-events-auto shrink-0 animate-in slide-in-from-bottom-2 duration-200">
+            {renderVehicleDetailCard(selectedVehicle)}
           </div>
         )}
       </div>
+
+      {/* ====================================================================== */}
+      {/* 5. MOBILE BOTTOM SHEET: SELECTED VEHICLE DETAIL CARD                   */}
+      {/* ====================================================================== */}
+      {selectedVehicle && (
+        <div className="lg:hidden absolute bottom-3 left-3 right-3 z-30 animate-in slide-in-from-bottom-3 duration-200">
+          {renderVehicleDetailCard(selectedVehicle)}
+        </div>
+      )}
     </div>
   );
 }
