@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { io, Socket } from "socket.io-client";
 import { Navigation, Compass } from "lucide-react";
@@ -57,10 +57,22 @@ export default function DriverHudPage() {
   const [, setSocketConnected] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
 
-  const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_SOCKET_SERVER_URL ||
-    "http://localhost:4000";
+  const backendUrl = useMemo(() => {
+    let envUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_SOCKET_SERVER_URL;
+    if (envUrl) {
+      if (!envUrl.startsWith("http://") && !envUrl.startsWith("https://")) {
+        envUrl = `https://${envUrl}`;
+      }
+      if (!envUrl.includes("localhost")) {
+        return envUrl;
+      }
+    }
+    if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost") {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      return `${protocol}//${window.location.hostname}:4000`;
+    }
+    return envUrl || "http://localhost:4000";
+  }, []);
 
   // Native Web Audio Dashboard Chime for passenger handwaves
   const playDashboardChime = useCallback(() => {
@@ -143,6 +155,39 @@ export default function DriverHudPage() {
       }
     };
   }, []);
+
+  // Real Hardware GPS Streaming: Tracks driver coordinates when online
+  useEffect(() => {
+    if (!driverState.isOnline) return;
+    if (typeof window === "undefined" || !("geolocation" in navigator)) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setDriverState((prev) => {
+          const dist = getDistanceMeters(prev.lat, prev.lng, latitude, longitude);
+          if (dist < 2) return prev;
+          return {
+            ...prev,
+            lat: latitude,
+            lng: longitude,
+          };
+        });
+      },
+      (err) => {
+        console.warn("GPS tracking status:", err.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1500,
+        timeout: 10000,
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [driverState.isOnline]);
 
   // ── OSRM Road Route Generation & Dynamic Rerouting ──────────────────────
   const regenerateRoute = useCallback(

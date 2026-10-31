@@ -139,19 +139,37 @@ export function DriverLeafletMap({
     mapRef.current.setView([driverLat, driverLng], 15.5, { animate: true });
   }, [recenterTrigger, driverLat, driverLng]);
 
-  // ── Driver Position Marker ───────────────────────────────────────────────
+  // ── Driver Position Marker (Clean SVG Badges) ───────────────────────────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
-    const iconEmoji = vehicleType === "ERICKSHAW" ? "⚡" : "🛺";
-    const labelTitle = vehicleType === "ERICKSHAW" ? "Your E-Rickshaw" : "Your Auto";
+    const isERickshaw = vehicleType === "ERICKSHAW";
+    const labelTitle = isERickshaw ? "Your E-Rickshaw" : "Your Auto";
+
+    const vehicleSvg = isERickshaw
+      ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="6" rx="2"/>
+          <path d="M5 11l2-5h10l2 5"/>
+          <circle cx="7" cy="17" r="2"/>
+          <circle cx="17" cy="17" r="2"/>
+        </svg>`
+      : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 17h16M5 12h14M7 7h10l2 5v5H5v-5l2-5z"/>
+          <circle cx="7.5" cy="17.5" r="1.5"/>
+          <circle cx="16.5" cy="17.5" r="1.5"/>
+        </svg>`;
+
+    const badgeLabel = isERickshaw
+      ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#059669;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
+      : `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#d97706;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">AUTO</span>`;
 
     const icon = L.current.divIcon({
       html: `
         <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;">
           <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.35);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
-          <div style="position:relative;width:34px;height:34px;border-radius:50%;background:#1d4ed8;border:2.5px solid #ffffff;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:17px;">
-            ${iconEmoji}
+          <div style="position:relative;width:36px;height:36px;border-radius:50%;background:#0f172a;border:2.5px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;">
+            ${vehicleSvg}
+            ${badgeLabel}
           </div>
         </div>
       `,
@@ -169,7 +187,7 @@ export function DriverLeafletMap({
         .addTo(mapRef.current)
         .bindPopup(
           `<div style="font-family:sans-serif;font-size:12px;font-weight:bold;color:#1e40af">
-            ${iconEmoji} ${labelTitle} (HUD)
+            ${labelTitle} (HUD)
           </div>`
         );
     }
@@ -200,7 +218,7 @@ export function DriverLeafletMap({
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;">
             <div style="padding:4px 10px;border-radius:10px;background:#0f172a;color:#ffffff;font-size:11px;font-weight:800;border:1px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.5);white-space:nowrap;">
-              🎯 ${destination.name}
+              Destination: ${destination.name}
             </div>
             <div style="width:2px;height:12px;background:#3b82f6;"></div>
             <div style="width:8px;height:8px;border-radius:50%;background:#3b82f6;border:2px solid #ffffff;"></div>
@@ -215,7 +233,6 @@ export function DriverLeafletMap({
         .marker([destLat, destLng], { icon })
         .addTo(mapRef.current);
 
-      // Determine road coordinates: use OSRM polyline if present, otherwise direct curve
       let latlngs: [number, number][];
       if (routePolyline && routePolyline.length > 1) {
         latlngs = routePolyline.map((pt) => [pt[1], pt[0]]);
@@ -229,7 +246,6 @@ export function DriverLeafletMap({
         ];
       }
 
-      // Outer indigo glow casing
       const casing = L.current.polyline(latlngs, {
         color: "#4338ca",
         weight: 8,
@@ -238,7 +254,6 @@ export function DriverLeafletMap({
         lineCap: "round",
       }).addTo(mapRef.current);
 
-      // Inner vibrant driving route line
       const line = L.current.polyline(latlngs, {
         color: "#6366f1",
         weight: 4,
@@ -252,7 +267,7 @@ export function DriverLeafletMap({
     }
   }, [destination, routePolyline, driverLat, driverLng, mapReady]);
 
-  // ── Passenger Ping Markers (Digital Handwaves) ───────────────────────────
+  // ── Passenger Ping Markers ───────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
@@ -262,8 +277,13 @@ export function DriverLeafletMap({
     pings.forEach((ping) => {
       const icon = L.current.divIcon({
         html: `
-          <div style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.85);font-size:18px;">
-            👋
+          <div style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.85);color:#ffffff;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+            </svg>
           </div>
         `,
         iconSize: [38, 38],
@@ -276,7 +296,7 @@ export function DriverLeafletMap({
         .addTo(mapRef.current)
         .bindPopup(
           `<div style="font-family:sans-serif;font-size:12px;">
-            <b style="color:#16a34a">👋 Passenger Curb Wave!</b><br/>Standing near curb for pickup (~${ping.distanceMeters || 300}m)
+            <b style="color:#16a34a">Passenger Waiting!</b><br/>Standing near curb for pickup (~${ping.distanceMeters || 300}m)
           </div>`
         );
 
@@ -317,12 +337,12 @@ export function DriverLeafletMap({
         }
       `}</style>
 
-      {/* Theme Switcher Pill (Streets / Dark / Satellite - Zero API Key) */}
+      {/* Theme Switcher Pill (Streets / Dark / Satellite - Clean Text Buttons) */}
       <div className="absolute top-3 left-3 z-[1000] flex items-center bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-2xl">
         <button
           type="button"
           onClick={() => changeTheme("streets")}
-          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
             mapTheme === "streets" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
           title="OpenStreetMap Streets"
@@ -332,7 +352,7 @@ export function DriverLeafletMap({
         <button
           type="button"
           onClick={() => changeTheme("dark")}
-          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
             mapTheme === "dark" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
           title="Dark Mode"
@@ -342,12 +362,12 @@ export function DriverLeafletMap({
         <button
           type="button"
           onClick={() => changeTheme("satellite")}
-          className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition ${
+          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
             mapTheme === "satellite" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
           }`}
           title="Satellite Imagery"
         >
-          Sat
+          Satellite
         </button>
       </div>
 

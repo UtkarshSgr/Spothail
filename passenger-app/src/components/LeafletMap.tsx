@@ -181,11 +181,11 @@ export function LeafletMap({
       userMarkerRef.current = L.current
         .marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 2000 })
         .addTo(mapRef.current)
-        .bindPopup('<b style="color:#2563eb;font-family:sans-serif;font-size:12px;">📍 You are standing here</b>');
+        .bindPopup('<b style="color:#2563eb;font-family:sans-serif;font-size:12px;">You are standing here</b>');
     }
   }, [userLocation, mapReady]);
 
-  // ── Render Vehicles with Strict 3-Color Occupancy Rule ──────────────────
+  // ── Render Vehicles with Clean SVG Badges & Strict 3-Color Occupancy ────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
@@ -212,22 +212,43 @@ export function LeafletMap({
       }
 
       const isERickshaw = v.type === "ERICKSHAW";
-      const iconEmoji = isERickshaw ? "⚡" : "🛺";
+
+      // Clean SVG vector icons (no raw emojis)
+      const vehicleSvg = isERickshaw
+        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="6" rx="2"/>
+            <path d="M5 11l2-5h10l2 5"/>
+            <circle cx="7" cy="17" r="2"/>
+            <circle cx="17" cy="17" r="2"/>
+          </svg>`
+        : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17h16M5 12h14M7 7h10l2 5v5H5v-5l2-5z"/>
+            <circle cx="7.5" cy="17.5" r="1.5"/>
+            <circle cx="16.5" cy="17.5" r="1.5"/>
+          </svg>`;
+
+      const typeBadge = isERickshaw
+        ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#059669;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
+        : `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#d97706;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">AUTO</span>`;
 
       const icon = L.current.divIcon({
         html: `
           <div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;">
-            <div style="position:relative;width:38px;height:38px;border-radius:50%;background:#0f172a;border:2.5px solid ${dotColor};box-shadow:0 0 14px ${ringColor};display:flex;align-items:center;justify-content:center;">
-              <span style="font-size:17px;line-height:1;">${iconEmoji}</span>
+            <!-- Outer Glow & Avatar Circle -->
+            <div style="position:relative;width:40px;height:40px;border-radius:50%;background:#0f172a;border:2.5px solid ${dotColor};box-shadow:0 0 14px ${ringColor};display:flex;align-items:center;justify-content:center;">
+              ${vehicleSvg}
+              ${typeBadge}
+              <!-- Occupancy Status Indicator Dot -->
               <span style="position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:${dotColor};border:2px solid #0f172a;"></span>
             </div>
-            <div style="margin-top:2px;padding:2px 6px;border-radius:8px;background:rgba(15,23,42,0.92);color:#e2e8f0;font-size:10px;font-weight:800;border:1px solid #334155;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.5);">
+            <!-- Name Label Pill -->
+            <div style="margin-top:2px;padding:2px 7px;border-radius:8px;background:rgba(15,23,42,0.94);color:#e2e8f0;font-size:10px;font-weight:800;border:1px solid #334155;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.6);">
               ${v.label}
             </div>
           </div>
         `,
-        iconSize: [60, 52],
-        iconAnchor: [30, 26],
+        iconSize: [64, 54],
+        iconAnchor: [32, 27],
         className: "",
       });
 

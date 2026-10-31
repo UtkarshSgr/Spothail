@@ -154,7 +154,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[11px] font-black flex items-center gap-1 shadow-sm active:scale-95 transition"
         >
           {isMinimized ? (
-            <span>🛺 {occupancy}/{maxCapacity} Seats ▾</span>
+            <span>{occupancy}/{maxCapacity} Seats ▾</span>
           ) : (
             <>
               <X className="w-3 h-3 text-slate-400" />
@@ -171,16 +171,21 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           className="flex items-center justify-between w-full h-full pb-1 cursor-pointer select-none"
         >
           <div className="flex items-center gap-2">
-            <span className="text-xl">🛺</span>
             <span className="text-sm font-black text-white">
               Occupancy:{" "}
               <span className={`font-mono ${occupancyTheme.text}`}>
                 {occupancy} / {maxCapacity} Seats
               </span>
             </span>
-            <span className="text-xs">
-              {status === "EMPTY" ? "🟢" : status === "FULL" ? "🔴" : "🟡"}
-            </span>
+            <span
+              className={`w-2.5 h-2.5 rounded-full inline-block ${
+                status === "EMPTY"
+                  ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                  : status === "FULL"
+                  ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]"
+                  : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]"
+              }`}
+            />
           </div>
 
           <div className="flex items-center gap-2">

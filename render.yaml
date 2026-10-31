@@ -1,0 +1,51 @@
+services:
+  # ── 1. SPOTHAIL BACKEND (Node.js + Socket.io Server) ──────────────────────
+  - type: web
+    name: spothail-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+  # ── 2. PASSENGER APP (Next.js) ──────────────────────────────────────────
+  - type: web
+    name: spothail-passenger
+    runtime: node
+    plan: free
+    rootDir: passenger-app
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SOCKET_SERVER_URL
+        fromService:
+          type: web
+          name: spothail-backend
+          property: host
+
+  # ── 3. DRIVER APP (Next.js) ─────────────────────────────────────────────
+  - type: web
+    name: spothail-driver
+    runtime: node
+    plan: free
+    rootDir: driver-app
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SOCKET_SERVER_URL
+        fromService:
+          type: web
+          name: spothail-backend
+          property: host
+      - key: NEXT_PUBLIC_BACKEND_URL
+        fromService:
+          type: web
+          name: spothail-backend
+          property: host

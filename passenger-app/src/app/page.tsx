@@ -78,6 +78,15 @@ export default function PassengerAppPage() {
   // Desktop Nearby Fleet open state (default open)
   const [isFleetListOpen, setIsFleetListOpen] = useState(true);
 
+  // Dynamic Driver Cockpit link based on accessed host
+  const driverAppUrl = useMemo(() => {
+    if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost") {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      return `${protocol}//${window.location.hostname}:3001`;
+    }
+    return "http://localhost:3001";
+  }, []);
+
   // Connect to Socket.io to receive live broadcasted drivers
   useEffect(() => {
     const socket = socketService.connect();
@@ -115,22 +124,60 @@ export default function PassengerAppPage() {
     };
   }, []);
 
-  // Ambient vehicle movement simulation for mock vehicles
+  // Continuous road path traversal simulation for mock vehicles
   useEffect(() => {
     const interval = setInterval(() => {
       setVehicles((prev) =>
         prev.map((v) => {
-          if (v.id.startsWith("AUTO-") || v.id.startsWith("ERICK-")) {
-            return {
-              ...v,
-              lat: v.lat + (Math.random() - 0.49) * 0.00014,
-              lng: v.lng + (Math.random() - 0.49) * 0.00014,
-            };
+          if (!v.pathWaypoints || v.pathWaypoints.length < 2) {
+            return v;
           }
-          return v;
+
+          const waypoints = v.pathWaypoints;
+          let idx = v.pathIndex ?? 0;
+          let dir = v.pathDirection ?? 1;
+
+          let nextIdx = idx + dir;
+
+          let destination = v.destination;
+          // Reached end of forward path -> flip to return direction
+          if (nextIdx >= waypoints.length) {
+            dir = -1;
+            nextIdx = Math.max(0, waypoints.length - 2);
+            destination = v.terminusA || v.destination;
+          } else if (nextIdx < 0) {
+            // Reached start of path -> flip to forward direction
+            dir = 1;
+            nextIdx = Math.min(1, waypoints.length - 1);
+            destination = v.terminusB || v.destination;
+          }
+
+          const [nextLng, nextLat] = waypoints[nextIdx];
+          const [currLng, currLat] = waypoints[idx];
+
+          // Calculate heading angle in degrees (0 = North)
+          const dLng = nextLng - currLng;
+          const dLat = nextLat - currLat;
+          let heading = v.heading ?? 0;
+          if (Math.abs(dLng) > 0.00001 || Math.abs(dLat) > 0.00001) {
+            heading = Math.round((Math.atan2(dLng, dLat) * 180) / Math.PI);
+            if (heading < 0) heading += 360;
+          }
+
+          return {
+            ...v,
+            lat: nextLat,
+            lng: nextLng,
+            heading,
+            pathIndex: nextIdx,
+            pathDirection: dir,
+            destination,
+            lastUpdated: Date.now(),
+          };
         })
       );
-    }, 3000);
+    }, 2500);
+
     return () => clearInterval(interval);
   }, []);
 
@@ -286,9 +333,17 @@ export default function PassengerAppPage() {
         {/* Header: Vehicle icon, title, reg number, close */}
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2.5">
-            <span className="text-2xl p-2 rounded-2xl bg-slate-800 border border-slate-700">
-              {vehicle.type === "ERICKSHAW" ? "⚡" : "🛺"}
-            </span>
+            <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold shrink-0">
+              {vehicle.type === "ERICKSHAW" ? (
+                <span className="text-[10px] font-black tracking-wider text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/40">
+                  EV
+                </span>
+              ) : (
+                <span className="text-[10px] font-black tracking-wider text-amber-400 bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/40">
+                  AUTO
+                </span>
+              )}
+            </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-black text-white">{vehicle.label}</h2>
@@ -385,7 +440,7 @@ export default function PassengerAppPage() {
           {pingedDrivers[vehicle.id] ? (
             <>
               <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-              <span>Driver Signaled! Wave your hand when they approach 👋</span>
+              <span>Driver Signaled! Wave your hand when they approach</span>
             </>
           ) : (
             <>
@@ -467,11 +522,11 @@ export default function PassengerAppPage() {
 
             {/* Link to Driver Mode */}
             <a
-              href="http://localhost:3001"
+              href={driverAppUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition shrink-0 flex items-center gap-1 shadow-sm"
-              title="Open Driver Cockpit (Port 3001)"
+              title="Open Driver Cockpit"
             >
               <span>Driver</span>
               <ArrowUpRight className="w-3 h-3 text-slate-400" />
@@ -522,29 +577,27 @@ export default function PassengerAppPage() {
             <div className="flex items-center bg-slate-900/90 backdrop-blur-md p-0.5 rounded-xl border border-slate-700/80 shadow-md shrink-0 text-[11px]">
               <button
                 onClick={() => setVehicleFilter("ALL")}
-                className={`px-2 py-0.5 rounded-lg font-bold transition ${
-                  vehicleFilter === "ALL" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  vehicleFilter === "ALL" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
                 }`}
               >
                 All
               </button>
               <button
                 onClick={() => setVehicleFilter("AUTO")}
-                className={`px-2 py-0.5 rounded-lg font-bold transition flex items-center gap-1 ${
-                  vehicleFilter === "AUTO" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  vehicleFilter === "AUTO" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
                 }`}
               >
-                <span>🛺</span>
-                <span className="hidden sm:inline">Autos</span>
+                Autos
               </button>
               <button
                 onClick={() => setVehicleFilter("ERICKSHAW")}
-                className={`px-2 py-0.5 rounded-lg font-bold transition flex items-center gap-1 ${
-                  vehicleFilter === "ERICKSHAW" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  vehicleFilter === "ERICKSHAW" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
                 }`}
               >
-                <span>⚡</span>
-                <span className="hidden sm:inline">E-Rick</span>
+                E-Rickshaws
               </button>
             </div>
           </div>
@@ -561,41 +614,38 @@ export default function PassengerAppPage() {
           <button
             type="button"
             onClick={() => setMapTheme("streets")}
-            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg transition ${
               mapTheme === "streets"
                 ? "bg-blue-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-white"
             }`}
             title="OpenStreetMap Streets"
           >
-            <span>🗺️</span>
-            <span>Streets</span>
+            Streets
           </button>
           <button
             type="button"
             onClick={() => setMapTheme("dark")}
-            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg transition ${
               mapTheme === "dark"
                 ? "bg-blue-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-white"
             }`}
             title="Dark Mode"
           >
-            <span>🌙</span>
-            <span>Dark</span>
+            Dark
           </button>
           <button
             type="button"
             onClick={() => setMapTheme("satellite")}
-            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg transition ${
               mapTheme === "satellite"
                 ? "bg-blue-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-white"
             }`}
             title="Satellite Imagery"
           >
-            <span>🛰️</span>
-            <span>Satellite</span>
+            Satellite
           </button>
         </div>
 
@@ -638,36 +688,33 @@ export default function PassengerAppPage() {
                 setMapTheme("streets");
                 setIsMobileThemeOpen(false);
               }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
                 mapTheme === "streets" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
               }`}
             >
-              <span>🗺️</span>
-              <span>Streets</span>
+              Streets
             </button>
             <button
               onClick={() => {
                 setMapTheme("dark");
                 setIsMobileThemeOpen(false);
               }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
                 mapTheme === "dark" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
               }`}
             >
-              <span>🌙</span>
-              <span>Dark</span>
+              Dark
             </button>
             <button
               onClick={() => {
                 setMapTheme("satellite");
                 setIsMobileThemeOpen(false);
               }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition flex items-center gap-2 ${
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
                 mapTheme === "satellite" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
               }`}
             >
-              <span>🛰️</span>
-              <span>Satellite</span>
+              Satellite
             </button>
           </div>
         )}
@@ -676,11 +723,15 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 4. DESKTOP LEFT DOCK: NEARBY FLEET (STRICTLY ABOVE DETAIL BOX) + CARD */}
       {/* ====================================================================== */}
-      <div className="hidden lg:flex flex-col absolute top-20 left-6 bottom-4 z-30 w-[360px] pointer-events-none justify-end gap-3">
+      <div className="hidden lg:flex flex-col absolute top-20 left-6 bottom-4 z-30 w-[360px] pointer-events-none gap-3 max-h-[calc(100dvh-6rem)]">
         {/* Nearby Fleet Box (Flexes to fill space strictly above the detail box) */}
         <div
           className={`pointer-events-auto flex flex-col bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
-            isFleetListOpen ? "flex-1 min-h-[140px] max-h-full" : "h-12 shrink-0"
+            isFleetListOpen
+              ? selectedVehicle
+                ? "flex-1 min-h-[160px]"
+                : "max-h-[70vh] flex-1 min-h-[160px]"
+              : "h-12 shrink-0"
           }`}
         >
           {/* Header Toggle */}
@@ -718,7 +769,15 @@ export default function PassengerAppPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm">{v.type === "ERICKSHAW" ? "⚡" : "🛺"}</span>
+                        {v.type === "ERICKSHAW" ? (
+                          <span className="text-[9px] font-black tracking-wider text-emerald-400 bg-emerald-950/90 px-1.5 py-0.5 rounded border border-emerald-500/40">
+                            EV
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black tracking-wider text-amber-400 bg-amber-950/90 px-1.5 py-0.5 rounded border border-amber-500/40">
+                            AUTO
+                          </span>
+                        )}
                         <span className="font-extrabold text-xs text-white">{v.label}</span>
                       </div>
 

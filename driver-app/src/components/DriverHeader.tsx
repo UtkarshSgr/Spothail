@@ -79,26 +79,24 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                 triggerHaptics?.();
                 setVehicleType("AUTO");
               }}
-              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+              className={`px-2.5 py-1 rounded-lg font-bold transition ${
                 vehicleType === "AUTO" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
               }`}
               title="Auto Rickshaw (3-4 seats)"
             >
-              <span>🛺</span>
-              <span className="hidden sm:inline">Auto</span>
+              <span>Auto</span>
             </button>
             <button
               onClick={() => {
                 triggerHaptics?.();
                 setVehicleType("ERICKSHAW");
               }}
-              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+              className={`px-2.5 py-1 rounded-lg font-bold transition ${
                 vehicleType === "ERICKSHAW" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
               }`}
               title="E-Rickshaw (3-4 seats)"
             >
-              <span>⚡</span>
-              <span className="hidden sm:inline">E-Rick</span>
+              <span>E-Rick</span>
             </button>
           </div>
         </div>
@@ -203,7 +201,9 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                       : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
-                  <span className="text-base">🛺</span>
+                  <span className="text-[10px] font-black tracking-wider text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-500/30">
+                    AUTO
+                  </span>
                   <span>Auto Rickshaw</span>
                 </button>
                 <button
@@ -217,7 +217,9 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                       : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
-                  <span className="text-base">⚡</span>
+                  <span className="text-[10px] font-black tracking-wider text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                    EV
+                  </span>
                   <span>E-Rickshaw</span>
                 </button>
               </div>
@@ -277,7 +279,7 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                   }`}
                 >
                   <Eye className="w-4 h-4" />
-                  <span>👁️ Public Route</span>
+                  <span>Public Route</span>
                 </button>
                 <button
                   onClick={() => {
@@ -291,7 +293,7 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                   }`}
                 >
                   <EyeOff className="w-4 h-4" />
-                  <span>🔒 Roaming / Private</span>
+                  <span>Roaming / Private</span>
                 </button>
               </div>
             </div>

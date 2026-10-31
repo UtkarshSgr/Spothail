@@ -1,7 +1,21 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_SERVER_URL =
-  process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 'http://localhost:4000';
+const getSocketServerUrl = (): string => {
+  let envUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL;
+  if (envUrl) {
+    if (!envUrl.startsWith('http://') && !envUrl.startsWith('https://')) {
+      envUrl = `https://${envUrl}`;
+    }
+    if (!envUrl.includes('localhost')) {
+      return envUrl;
+    }
+  }
+  if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost') {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    return `${protocol}//${window.location.hostname}:4000`;
+  }
+  return envUrl || 'http://localhost:4000';
+};
 
 /**
  * Singleton service for managing the Socket.io client connection.
@@ -25,7 +39,8 @@ class SocketService {
    */
   public getSocket(): Socket {
     if (!this.socket) {
-      this.socket = io(SOCKET_SERVER_URL, {
+      const serverUrl = getSocketServerUrl();
+      this.socket = io(serverUrl, {
         autoConnect: false,
         reconnection: true,
         reconnectionAttempts: 5,

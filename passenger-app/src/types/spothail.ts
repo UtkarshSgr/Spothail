@@ -25,6 +25,12 @@ export interface TransitVehicle {
   routePolyline?: [number, number][]; // [[lng, lat], ...] road route
   distanceMeters?: number;
   lastUpdated?: string | number;
+  // Waypoint pathing for smooth road simulation
+  pathWaypoints?: [number, number][]; // [[lng, lat], ...] road coordinates
+  pathIndex?: number;
+  pathDirection?: 1 | -1;
+  terminusA?: DestinationInfo;
+  terminusB?: DestinationInfo;
 }
 
 export type VehicleFilter = 'ALL' | 'AUTO' | 'ERICKSHAW';
