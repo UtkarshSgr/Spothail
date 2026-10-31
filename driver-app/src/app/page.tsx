@@ -7,6 +7,7 @@ import { Navigation, Compass } from "lucide-react";
 import {
   DriverState,
   CorridorDestination,
+  RouteOption,
   PassengerPing,
   SeatCapacity,
   VehicleType,
@@ -52,7 +53,6 @@ export default function DriverHudPage() {
   });
 
   // UI & HUD State
-  const [isCockpitMinimized, setIsCockpitMinimized] = useState(false);
   const [pings, setPings] = useState<PassengerPing[]>([]);
   const [, setSocketConnected] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
@@ -193,10 +193,15 @@ export default function DriverHudPage() {
   const regenerateRoute = useCallback(
     async (startCoords: { lat: number; lng: number }, dest: CorridorDestination) => {
       const route = await fetchOSRMRoute(startCoords, { lat: dest.lat, lng: dest.lng });
+      // Calculate estimated time based on auto speed ~25 km/h:
+      const distKm = dest.distanceKm || ((route.distanceMeters || 1500) / 1000);
+      const estMinutes = dest.estimatedMinutes || Math.max(1, Math.round((distKm / 25) * 60));
+
       setDriverState((prev) => ({
         ...prev,
         routePolyline: route.coordinates,
-        etaMinutes: route.durationMinutes,
+        estimatedMinutes: estMinutes,
+        etaMinutes: estMinutes,
       }));
       lastRerouteTimeRef.current = Date.now();
     },
@@ -324,38 +329,33 @@ export default function DriverHudPage() {
     }));
   };
 
-  const handleQuickEmpty = () => {
+  const handleCorridorSelect = (corridor: CorridorDestination, selectedRoute?: RouteOption) => {
     triggerHaptics();
-    setDriverState((prev) => ({ ...prev, occupancy: 0 }));
-  };
-
-  const handleQuickFull = () => {
-    triggerHaptics();
-    setDriverState((prev) => ({ ...prev, occupancy: prev.maxCapacity }));
-  };
-
-  const handleCorridorSelect = (corridor: CorridorDestination) => {
-    triggerHaptics();
+    const updatedDest: CorridorDestination = {
+      ...corridor,
+      selectedRouteId: selectedRoute?.id || corridor.selectedRouteId,
+      via: selectedRoute?.via || corridor.via,
+      distanceKm: selectedRoute?.distanceKm || corridor.distanceKm,
+      estimatedMinutes: selectedRoute?.estimatedMinutes || corridor.estimatedMinutes,
+    };
     setDriverState((prev) => ({
       ...prev,
-      destination: corridor,
+      destination: updatedDest,
+      estimatedMinutes: updatedDest.estimatedMinutes,
+      etaMinutes: updatedDest.estimatedMinutes,
       showDestination: true,
     }));
   };
 
   return (
-    <main className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-slate-950 select-none font-sans">
+    <main className="relative w-full h-[100dvh] overflow-hidden bg-[#f0fbf5] select-none font-sans">
       {/* ====================================================================== */}
-      {/* 1. TOP COMMAND BAR WITH PROMINENT "BROADCASTING GPS" TOGGLE            */}
+      {/* 1. TOP COMMAND BAR (DESTINATION SETUP & SEAT INDICATOR)                */}
       {/* ====================================================================== */}
       <DriverHeader
-        isOnline={driverState.isOnline}
-        setIsOnline={(val) => {
-          triggerHaptics();
-          setDriverState((prev) => ({ ...prev, isOnline: val }));
-        }}
         vehicleType={driverState.type}
         setVehicleType={handleSetVehicleType}
+        occupancy={driverState.occupancy}
         maxSeats={driverState.maxCapacity}
         setMaxSeats={handleSetCapacity}
         showDestination={driverState.showDestination}
@@ -363,6 +363,9 @@ export default function DriverHudPage() {
           triggerHaptics();
           setDriverState((prev) => ({ ...prev, showDestination: val }));
         }}
+        activeDestination={driverState.destination}
+        onSelectDestination={handleCorridorSelect}
+        corridors={CORRIDORS}
         onSimulatePing={() =>
           handleIncomingPing({
             id: `SIM-${Date.now()}`,
@@ -375,13 +378,9 @@ export default function DriverHudPage() {
       />
 
       {/* ====================================================================== */}
-      {/* 2. LIVE LEAFLET DRIVER MAP CANVAS WITH DYNAMIC ROAD ROUTING           */}
+      {/* 2. FULL-SCREEN DRIVER LEAFLET MAP WITH DYNAMIC ROAD ROUTING           */}
       {/* ====================================================================== */}
-      <section
-        className={`relative w-full overflow-hidden bg-slate-950 isolate transition-all duration-300 ease-in-out ${
-          isCockpitMinimized ? "h-[calc(100%-4rem)]" : "h-[52%]"
-        }`}
-      >
+      <section className="absolute inset-0 z-0 w-full h-full">
         <DriverLeafletMap
           driverLat={driverState.lat}
           driverLng={driverState.lng}
@@ -389,54 +388,35 @@ export default function DriverHudPage() {
           destination={driverState.showDestination ? driverState.destination : null}
           routePolyline={driverState.showDestination ? driverState.routePolyline : null}
           pings={pings}
-          isMinimized={isCockpitMinimized}
+          isMinimized={false}
           recenterTrigger={recenterTrigger}
           className="w-full h-full"
         />
-
-        {/* Floating Active Corridor Badge in Map Area */}
-        <div className="absolute bottom-3 left-3 right-3 pointer-events-none flex items-center justify-between">
-          <div className="pointer-events-auto bg-slate-900/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-700/80 shadow-xl flex items-center gap-2.5 max-w-[75%]">
-            <Navigation className="w-4 h-4 text-blue-400 shrink-0" />
-            <div className="truncate">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block leading-tight">
-                Active Road Route (OSRM)
-              </span>
-              <span className="text-xs font-black text-white truncate block">
-                {driverState.showDestination && driverState.destination
-                  ? `${driverState.destination.name} (${driverState.destination.via || "Direct"})`
-                  : "Local / Free Roaming"}
-              </span>
-            </div>
-          </div>
-
-          {/* Re-center Map Button */}
-          <button
-            onClick={() => setRecenterTrigger((prev) => prev + 1)}
-            className="pointer-events-auto p-2.5 rounded-2xl bg-slate-900/90 border border-slate-700 text-blue-400 shadow-xl active:scale-90 transition"
-            aria-label="Re-center map on vehicle"
-          >
-            <Compass className="w-4 h-4" />
-          </button>
-        </div>
       </section>
 
       {/* ====================================================================== */}
-      {/* 3. MODULAR DRIVER COCKPIT & SEAT CONTROLS                             */}
+      {/* 3. FLOATING RE-CENTER COMPASS BUTTON                                   */}
+      {/* ====================================================================== */}
+      <div className="absolute bottom-24 right-3 sm:right-4 z-20 pointer-events-auto">
+        <button
+          onClick={() => setRecenterTrigger((prev) => prev + 1)}
+          className="p-2.5 rounded-2xl bg-white/95 border border-emerald-200 text-emerald-700 shadow-md active:scale-90 transition flex items-center justify-center hover:bg-emerald-50"
+          aria-label="Re-center map on vehicle"
+          title="Re-center on vehicle"
+        >
+          <Compass className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* ====================================================================== */}
+      {/* 4. FLOATING BOARD AND DROP THUMB CONTROLS (FULL MAP VISIBILITY)        */}
       {/* ====================================================================== */}
       <DriverCockpit
         occupancy={driverState.occupancy}
         maxCapacity={driverState.maxCapacity}
-        isMinimized={isCockpitMinimized}
-        setIsMinimized={setIsCockpitMinimized}
         handleDrop={handleDecrement}
         handleBoard={handleIncrement}
-        handleCorridorSelect={handleCorridorSelect}
-        activeCorridor={driverState.destination}
-        handleQuickEmpty={handleQuickEmpty}
-        handleQuickFull={handleQuickFull}
         triggerHaptics={triggerHaptics}
-        etaMinutes={driverState.etaMinutes}
       />
     </main>
   );

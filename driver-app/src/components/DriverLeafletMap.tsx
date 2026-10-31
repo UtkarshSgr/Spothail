@@ -32,8 +32,9 @@ export function DriverLeafletMap({
   const tileLayerRef = useRef<any>(null);
   const driverMarkerRef = useRef<any>(null);
   const destMarkerRef = useRef<any>(null);
-  const routeLineRef = useRef<any>(null);
+  const routeGlowRef = useRef<any>(null);
   const routeCasingRef = useRef<any>(null);
+  const routeLineRef = useRef<any>(null);
   const pingMarkersRef = useRef<any[]>([]);
   const L = useRef<any>(null);
 
@@ -101,7 +102,7 @@ export function DriverLeafletMap({
       initialLayer.addTo(map);
       tileLayerRef.current = initialLayer;
 
-      leaflet.control.zoom({ position: "topright" }).addTo(map);
+      leaflet.control.zoom({ position: "bottomright" }).addTo(map);
 
       mapRef.current = map;
       setMapReady(true);
@@ -147,17 +148,12 @@ export function DriverLeafletMap({
     const labelTitle = isERickshaw ? "Your E-Rickshaw" : "Your Auto";
     const vehicleImageSrc = isERickshaw ? "/icons/erickshaw.jpg" : "/icons/auto.jpg";
 
-    const badgeLabel = isERickshaw
-      ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#0284c7;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
-      : `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#d97706;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">AUTO</span>`;
-
     const icon = L.current.divIcon({
       html: `
         <div style="position:relative;display:flex;align-items:center;justify-content:center;width:48px;height:48px;">
           <div style="position:absolute;width:48px;height:48px;border-radius:50%;background:rgba(59,130,246,0.35);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
           <div style="position:relative;width:40px;height:40px;border-radius:50%;background:#ffffff;border:2.5px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;overflow:hidden;padding:2px;">
             <img src="${vehicleImageSrc}" alt="${labelTitle}" style="width:100%;height:100%;object-fit:contain;border-radius:50%;" />
-            ${badgeLabel}
           </div>
         </div>
       `,
@@ -181,7 +177,7 @@ export function DriverLeafletMap({
     }
   }, [driverLat, driverLng, vehicleType, mapReady]);
 
-  // ── Destination Marker & Active Road Polyline (OSRM Road Routing) ───────
+  // ── Destination Marker & Active Road Polyline (Matching Passenger Glow Styling) ───
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
@@ -189,13 +185,17 @@ export function DriverLeafletMap({
       destMarkerRef.current.remove();
       destMarkerRef.current = null;
     }
-    if (routeLineRef.current) {
-      mapRef.current.removeLayer(routeLineRef.current);
-      routeLineRef.current = null;
+    if (routeGlowRef.current) {
+      mapRef.current.removeLayer(routeGlowRef.current);
+      routeGlowRef.current = null;
     }
     if (routeCasingRef.current) {
       mapRef.current.removeLayer(routeCasingRef.current);
       routeCasingRef.current = null;
+    }
+    if (routeLineRef.current) {
+      mapRef.current.removeLayer(routeLineRef.current);
+      routeLineRef.current = null;
     }
 
     const destLat = destination?.lat ?? destination?.center?.[1];
@@ -205,11 +205,12 @@ export function DriverLeafletMap({
       const icon = L.current.divIcon({
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;">
-            <div style="padding:4px 10px;border-radius:10px;background:#0f172a;color:#ffffff;font-size:11px;font-weight:800;border:1px solid #3b82f6;box-shadow:0 4px 14px rgba(0,0,0,0.5);white-space:nowrap;">
-              Destination: ${destination.name}
+            <div style="padding:4px 10px;border-radius:12px;background:#ffffff;color:#0f172a;font-size:11px;font-weight:800;border:1.5px solid #10b981;box-shadow:0 4px 14px rgba(0,0,0,0.15);white-space:nowrap;display:flex;align-items:center;gap:4px;">
+              <span style="color:#059669;">●</span>
+              <span>${destination.name}</span>
             </div>
-            <div style="width:2px;height:12px;background:#3b82f6;"></div>
-            <div style="width:8px;height:8px;border-radius:50%;background:#3b82f6;border:2px solid #ffffff;"></div>
+            <div style="width:2px;height:10px;background:#059669;"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#059669;border:2px solid #ffffff;box-shadow:0 0 6px #059669;"></div>
           </div>
         `,
         iconSize: [140, 44],
@@ -234,22 +235,34 @@ export function DriverLeafletMap({
         ];
       }
 
-      const casing = L.current.polyline(latlngs, {
-        color: "#4338ca",
-        weight: 8,
-        opacity: 0.4,
-        lineJoin: "round",
-        lineCap: "round",
-      }).addTo(mapRef.current);
-
-      const line = L.current.polyline(latlngs, {
+      // Outer soft glow (Matches passenger app styling)
+      const glow = L.current.polyline(latlngs, {
         color: "#6366f1",
-        weight: 4,
-        opacity: 0.95,
+        weight: 14,
+        opacity: 0.28,
         lineJoin: "round",
         lineCap: "round",
       }).addTo(mapRef.current);
 
+      // Saturated middle casing
+      const casing = L.current.polyline(latlngs, {
+        color: "#4f46e5",
+        weight: 6,
+        opacity: 0.75,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      // Vibrant core line (royal purple / bright violet)
+      const line = L.current.polyline(latlngs, {
+        color: "#c084fc",
+        weight: 3.5,
+        opacity: 0.98,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      routeGlowRef.current = glow;
       routeCasingRef.current = casing;
       routeLineRef.current = line;
     }
@@ -302,36 +315,40 @@ export function DriverLeafletMap({
 
       <style>{`
         .leaflet-container {
-          background: #030712;
+          background: #f0fbf5;
           font-family: inherit;
         }
         .dark-tiles .leaflet-tile-pane {
           filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%);
         }
         .leaflet-control-zoom {
-          border: none !important;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+          border: 1px solid rgba(16, 185, 129, 0.25) !important;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
           border-radius: 12px !important;
           overflow: hidden;
         }
         .leaflet-control-zoom a {
-          background: #0f172a !important;
-          color: #e2e8f0 !important;
-          border-color: #334155 !important;
+          background: #ffffff !important;
+          color: #1e293b !important;
+          border-color: #e2e8f0 !important;
+          width: 32px !important;
+          height: 32px !important;
+          line-height: 32px !important;
         }
         .leaflet-control-zoom a:hover {
-          background: #1e293b !important;
-          color: #ffffff !important;
+          background: #f0fdf4 !important;
+          color: #059669 !important;
         }
+        .leaflet-attribution-flag { display: none; }
       `}</style>
 
-      {/* Theme Switcher Pill (Streets / Dark / Satellite - Clean Text Buttons) */}
-      <div className="absolute top-3 left-3 z-[1000] flex items-center bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-2xl">
+      {/* Theme Switcher Pill (Streets / Dark / Satellite - Clean Light Mint Pill) */}
+      <div className="absolute top-14 left-3 z-[1000] flex items-center bg-white/95 backdrop-blur-md border border-emerald-200/90 rounded-xl p-1 shadow-md">
         <button
           type="button"
           onClick={() => changeTheme("streets")}
           className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "streets" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+            mapTheme === "streets" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
           }`}
           title="OpenStreetMap Streets"
         >
@@ -341,7 +358,7 @@ export function DriverLeafletMap({
           type="button"
           onClick={() => changeTheme("dark")}
           className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "dark" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+            mapTheme === "dark" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
           }`}
           title="Dark Mode"
         >
@@ -351,7 +368,7 @@ export function DriverLeafletMap({
           type="button"
           onClick={() => changeTheme("satellite")}
           className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "satellite" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+            mapTheme === "satellite" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
           }`}
           title="Satellite Imagery"
         >

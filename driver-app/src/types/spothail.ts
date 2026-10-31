@@ -8,12 +8,26 @@ export function getOccupancyStatus(occupancy: number, maxCapacity: number): Occu
   return 'HAS_SPACE';
 }
 
+export interface RouteOption {
+  id: string;
+  name: string; // e.g. "Primary Route", "Alternate Route"
+  via: string;
+  distanceKm: number;
+  estimatedMinutes: number; // calculated according to auto speed ~25 km/h
+  description?: string;
+  trafficStatus?: 'Normal' | 'Smooth' | 'Congested';
+}
+
 export interface CorridorDestination {
   id: string;
   name: string;
   via?: string;
   lat: number;
   lng: number;
+  distanceKm?: number;
+  estimatedMinutes?: number;
+  selectedRouteId?: string;
+  routes?: RouteOption[];
 }
 
 export interface DriverState {
@@ -28,6 +42,7 @@ export interface DriverState {
   showDestination: boolean;
   destination: CorridorDestination | null;
   routePolyline?: [number, number][]; // [[lng, lat], ...] road route
+  estimatedMinutes?: number;
   etaMinutes?: number;
 }
 

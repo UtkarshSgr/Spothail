@@ -10,6 +10,11 @@ export interface DestinationInfo {
   etaMinutes?: number;
 }
 
+export interface CircuitMilestone {
+  index: number;
+  destination: DestinationInfo;
+}
+
 export interface TransitVehicle {
   id: string;
   type: VehicleType;
@@ -31,6 +36,7 @@ export interface TransitVehicle {
   pathDirection?: 1 | -1;
   terminusA?: DestinationInfo;
   terminusB?: DestinationInfo;
+  circuitMilestones?: CircuitMilestone[];
 }
 
 export type VehicleFilter = 'ALL' | 'AUTO' | 'ERICKSHAW';
@@ -57,7 +63,7 @@ export function getOccupancyTheme(status: OccupancyStatus): OccupancyTheme {
       return {
         color: '#10b981', // green
         badgeBg: 'bg-emerald-500/15',
-        textColor: 'text-emerald-400',
+        textColor: 'text-emerald-700',
         borderColor: 'border-emerald-500/40',
         label: 'Empty',
         advice: 'Plenty of seats open',
@@ -66,7 +72,7 @@ export function getOccupancyTheme(status: OccupancyStatus): OccupancyTheme {
       return {
         color: '#f59e0b', // yellow
         badgeBg: 'bg-amber-500/15',
-        textColor: 'text-amber-400',
+        textColor: 'text-amber-700',
         borderColor: 'border-amber-500/40',
         label: 'Partly Full',
         advice: 'Has space, wave down!',
@@ -75,7 +81,7 @@ export function getOccupancyTheme(status: OccupancyStatus): OccupancyTheme {
       return {
         color: '#ef4444', // red
         badgeBg: 'bg-rose-500/15',
-        textColor: 'text-rose-400',
+        textColor: 'text-rose-700',
         borderColor: 'border-rose-500/40',
         label: 'Full',
         advice: "Don't bother waving",

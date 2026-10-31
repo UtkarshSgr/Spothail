@@ -54,6 +54,7 @@ export function LeafletMap({
   const vehicleMarkersRef = useRef<Map<string, any>>(new Map());
   const routeLineRef = useRef<any>(null);
   const routeCasingRef = useRef<any>(null);
+  const routeGlowRef = useRef<any>(null);
   const L = useRef<any>(null);
 
   const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">(theme || defaultTheme);
@@ -214,28 +215,20 @@ export function LeafletMap({
       const isERickshaw = v.type === "ERICKSHAW";
       const vehicleImageSrc = isERickshaw ? "/icons/erickshaw.jpg" : "/icons/auto.jpg";
 
-      const typeBadge = isERickshaw
-        ? `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#0284c7;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">EV</span>`
-        : `<span style="position:absolute;bottom:-3px;font-size:7.5px;font-weight:900;background:#d97706;color:#ffffff;padding:0 3px;border-radius:4px;letter-spacing:0.4px;">AUTO</span>`;
-
+      // Sleek vehicle badge without redundant under-pin label text
       const icon = L.current.divIcon({
         html: `
-          <div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;">
+          <div style="position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:transform 0.15s ease;">
             <!-- Outer Glow & Avatar Circle with Custom Vehicle Image -->
-            <div style="position:relative;width:42px;height:42px;border-radius:50%;background:#ffffff;border:2.5px solid ${dotColor};box-shadow:0 0 14px ${ringColor};display:flex;align-items:center;justify-content:center;overflow:hidden;padding:2px;">
+            <div style="position:relative;width:42px;height:42px;border-radius:50%;background:#ffffff;border:2.5px solid ${dotColor};box-shadow:0 2px 12px ${ringColor}, 0 0 0 1px rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;overflow:hidden;padding:2px;">
               <img src="${vehicleImageSrc}" alt="${v.label}" style="width:100%;height:100%;object-fit:contain;border-radius:50%;" />
               <!-- Occupancy Status Indicator Dot -->
-              <span style="position:absolute;top:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:${dotColor};border:2px solid #ffffff;box-shadow:0 0 6px ${dotColor};"></span>
-            </div>
-            ${typeBadge}
-            <!-- Name Label Pill -->
-            <div style="margin-top:4px;padding:2px 7px;border-radius:8px;background:rgba(15,23,42,0.94);color:#e2e8f0;font-size:10px;font-weight:800;border:1px solid #334155;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.6);">
-              ${v.label}
+              <span style="position:absolute;top:0px;right:0px;width:11px;height:11px;border-radius:50%;background:${dotColor};border:2px solid #ffffff;box-shadow:0 0 6px ${dotColor};"></span>
             </div>
           </div>
         `,
-        iconSize: [64, 58],
-        iconAnchor: [32, 29],
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
         className: "",
       });
 
@@ -257,38 +250,54 @@ export function LeafletMap({
     });
   }, [vehicles, mapReady]);
 
-  // ── Render Active Route Polyline on Map (Distinct Blue/Purple) ──────────
+  // ── Render Active Route Polyline on Map (Glowing Royal Blue/Purple) ────
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
-    if (routeLineRef.current) {
-      mapRef.current.removeLayer(routeLineRef.current);
-      routeLineRef.current = null;
+    if (routeGlowRef.current) {
+      mapRef.current.removeLayer(routeGlowRef.current);
+      routeGlowRef.current = null;
     }
     if (routeCasingRef.current) {
       mapRef.current.removeLayer(routeCasingRef.current);
       routeCasingRef.current = null;
     }
+    if (routeLineRef.current) {
+      mapRef.current.removeLayer(routeLineRef.current);
+      routeLineRef.current = null;
+    }
 
     if (activeRoutePolyline && activeRoutePolyline.length > 1) {
       const latlngs = activeRoutePolyline.map((pt) => [pt[1], pt[0]]);
 
-      const casing = L.current.polyline(latlngs, {
-        color: "#4338ca",
-        weight: 8,
-        opacity: 0.45,
-        lineJoin: "round",
-        lineCap: "round",
-      }).addTo(mapRef.current);
-
-      const line = L.current.polyline(latlngs, {
+      // Outer soft glow
+      const glow = L.current.polyline(latlngs, {
         color: "#6366f1",
-        weight: 4,
-        opacity: 0.95,
+        weight: 14,
+        opacity: 0.28,
         lineJoin: "round",
         lineCap: "round",
       }).addTo(mapRef.current);
 
+      // Saturated middle casing
+      const casing = L.current.polyline(latlngs, {
+        color: "#4f46e5",
+        weight: 6,
+        opacity: 0.75,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      // Vibrant core line (royal purple / bright violet)
+      const line = L.current.polyline(latlngs, {
+        color: "#c084fc",
+        weight: 3.5,
+        opacity: 0.98,
+        lineJoin: "round",
+        lineCap: "round",
+      }).addTo(mapRef.current);
+
+      routeGlowRef.current = glow;
       routeCasingRef.current = casing;
       routeLineRef.current = line;
     }
@@ -304,29 +313,29 @@ export function LeafletMap({
 
       <style>{`
         .leaflet-container {
-          background: #030712;
+          background: #f0fbf5;
           font-family: inherit;
         }
         .dark-tiles .leaflet-tile-pane {
           filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%);
         }
         .leaflet-control-zoom {
-          border: none !important;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+          border: 1px solid rgba(16, 185, 129, 0.25) !important;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
           border-radius: 12px !important;
           overflow: hidden;
         }
         .leaflet-control-zoom a {
-          background: #0f172a !important;
-          color: #e2e8f0 !important;
-          border-color: #334155 !important;
+          background: #ffffff !important;
+          color: #1e293b !important;
+          border-color: #e2e8f0 !important;
           width: 32px !important;
           height: 32px !important;
           line-height: 32px !important;
         }
         .leaflet-control-zoom a:hover {
-          background: #1e293b !important;
-          color: #ffffff !important;
+          background: #f0fdf4 !important;
+          color: #059669 !important;
         }
         .leaflet-attribution-flag { display: none; }
       `}</style>

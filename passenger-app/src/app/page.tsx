@@ -13,8 +13,8 @@ import {
   Clock,
   ArrowUpRight,
   ChevronDown,
-  ChevronUp,
   Layers,
+  CarFront,
 } from "lucide-react";
 import {
   TransitVehicle,
@@ -60,7 +60,10 @@ export default function PassengerAppPage() {
 
   // Map Theme state ("streets" | "dark" | "satellite")
   const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">("streets");
-  const [isMobileThemeOpen, setIsMobileThemeOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+
+  // Collapsible Nearby Fleet column state
+  const [isFleetOpen, setIsFleetOpen] = useState(false);
 
   // Filters (Only Autos & E-Rickshaws)
   const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>("ALL");
@@ -74,9 +77,6 @@ export default function PassengerAppPage() {
   // Dynamic Polyline cache for tapped vehicles
   const [routePolylines, setRoutePolylines] = useState<Record<string, [number, number][]>>({});
   const [vehicleEtas, setVehicleEtas] = useState<Record<string, number>>({});
-
-  // Desktop Nearby Fleet open state (default open)
-  const [isFleetListOpen, setIsFleetListOpen] = useState(true);
 
   // Dynamic Driver Cockpit link based on accessed host
   const driverAppUrl = useMemo(() => {
@@ -124,7 +124,7 @@ export default function PassengerAppPage() {
     };
   }, []);
 
-  // Continuous road path traversal simulation for mock vehicles
+  // Continuous smooth road path traversal simulation for mock vehicles
   useEffect(() => {
     const interval = setInterval(() => {
       setVehicles((prev) =>
@@ -134,22 +134,19 @@ export default function PassengerAppPage() {
           }
 
           const waypoints = v.pathWaypoints;
-          let idx = v.pathIndex ?? 0;
-          let dir = v.pathDirection ?? 1;
+          const idx = v.pathIndex ?? 0;
+          // Step to next micro-waypoint along the multi-corridor circuit
+          const nextIdx = (idx + 1) % waypoints.length;
 
-          let nextIdx = idx + dir;
-
+          // Dynamically resolve target destination from circuit milestones
           let destination = v.destination;
-          // Reached end of forward path -> flip to return direction
-          if (nextIdx >= waypoints.length) {
-            dir = -1;
-            nextIdx = Math.max(0, waypoints.length - 2);
-            destination = v.terminusA || v.destination;
-          } else if (nextIdx < 0) {
-            // Reached start of path -> flip to forward direction
-            dir = 1;
-            nextIdx = Math.min(1, waypoints.length - 1);
-            destination = v.terminusB || v.destination;
+          if (v.circuitMilestones && v.circuitMilestones.length > 0) {
+            const nextMilestone =
+              v.circuitMilestones.find((m) => m.index >= nextIdx) ||
+              v.circuitMilestones[0];
+            if (nextMilestone) {
+              destination = nextMilestone.destination;
+            }
           }
 
           const [nextLng, nextLat] = waypoints[nextIdx];
@@ -159,7 +156,7 @@ export default function PassengerAppPage() {
           const dLng = nextLng - currLng;
           const dLat = nextLat - currLat;
           let heading = v.heading ?? 0;
-          if (Math.abs(dLng) > 0.00001 || Math.abs(dLat) > 0.00001) {
+          if (Math.abs(dLng) > 0.000005 || Math.abs(dLat) > 0.000005) {
             heading = Math.round((Math.atan2(dLng, dLat) * 180) / Math.PI);
             if (heading < 0) heading += 360;
           }
@@ -170,13 +167,12 @@ export default function PassengerAppPage() {
             lng: nextLng,
             heading,
             pathIndex: nextIdx,
-            pathDirection: dir,
             destination,
             lastUpdated: Date.now(),
           };
         })
       );
-    }, 2500);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, []);
@@ -207,9 +203,14 @@ export default function PassengerAppPage() {
     [vehicles, selectedVehicleId]
   );
 
-  // Dynamic OSRM Route Generation when a vehicle is selected
+  // Dynamic Route Generation for live drivers (mock vehicles use real OSRM circuit waypoints)
   useEffect(() => {
     if (!selectedVehicle || !selectedVehicle.destination) return;
+
+    // Mock vehicles already possess their real OSRM road coordinates
+    if (selectedVehicle.pathWaypoints && selectedVehicle.pathWaypoints.length > 1) {
+      return;
+    }
 
     if (selectedVehicle.routePolyline && selectedVehicle.routePolyline.length > 1) {
       setRoutePolylines((prev) => ({
@@ -241,9 +242,40 @@ export default function PassengerAppPage() {
     return () => {
       mounted = false;
     };
-  }, [selectedVehicle]);
+  }, [selectedVehicle?.id, selectedVehicle?.destination?.name]);
 
-  const activeRoutePolyline = selectedVehicle ? routePolylines[selectedVehicle.id] ?? null : null;
+  // Active Purple Route Polyline on Map:
+  // For mock vehicles, draws the remaining real-road path directly ahead of the vehicle to its destination!
+  const activeRoutePolyline = useMemo(() => {
+    if (!selectedVehicle) return null;
+
+    if (selectedVehicle.pathWaypoints && selectedVehicle.pathWaypoints.length > 1) {
+      const waypoints = selectedVehicle.pathWaypoints;
+      const currIdx = selectedVehicle.pathIndex ?? 0;
+
+      let targetIdx = waypoints.length - 1;
+      if (selectedVehicle.circuitMilestones && selectedVehicle.circuitMilestones.length > 0) {
+        const nextMilestone =
+          selectedVehicle.circuitMilestones.find((m) => m.index >= currIdx) ||
+          selectedVehicle.circuitMilestones[0];
+        if (nextMilestone) {
+          targetIdx = nextMilestone.index;
+        }
+      }
+
+      if (targetIdx >= currIdx) {
+        return waypoints.slice(currIdx, targetIdx + 1);
+      } else {
+        return [...waypoints.slice(currIdx), ...waypoints.slice(0, targetIdx + 1)];
+      }
+    }
+
+    if (selectedVehicle.routePolyline && selectedVehicle.routePolyline.length > 1) {
+      return selectedVehicle.routePolyline;
+    }
+
+    return routePolylines[selectedVehicle.id] ?? null;
+  }, [selectedVehicle, routePolylines]);
 
   // Search geocoder (Local chips + OpenStreetMap Nominatim)
   const handleSearchChange = async (value: string) => {
@@ -319,8 +351,8 @@ export default function PassengerAppPage() {
     }, 25000);
   };
 
-  // Shared Detail Card Component Content
-  const renderVehicleDetailCard = (vehicle: TransitVehicle) => {
+  // Shared Vehicle Detail Content
+  const renderVehicleDetailContent = (vehicle: TransitVehicle, onClose?: () => void) => {
     const status = getOccupancyStatus(vehicle.occupancy, vehicle.maxCapacity);
     const theme = getOccupancyTheme(status);
     const etaMin =
@@ -329,131 +361,122 @@ export default function PassengerAppPage() {
       Math.max(1, Math.round((vehicle.distanceMeters ?? 400) / 250));
 
     return (
-      <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-3xl p-4 shadow-2xl text-white">
+      <div className="flex flex-col gap-2.5">
         {/* Header: Vehicle icon, title, reg number, close */}
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-12 h-12 rounded-2xl bg-white border border-slate-600 flex items-center justify-center p-1 overflow-hidden shrink-0 shadow-md">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center p-1 overflow-hidden shrink-0 shadow-sm">
               <img
                 src={vehicle.type === "ERICKSHAW" ? "/icons/erickshaw.jpg" : "/icons/auto.jpg"}
                 alt={vehicle.label}
                 className="w-full h-full object-contain"
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black text-white">{vehicle.label}</h2>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-sm font-black text-slate-900 truncate">{vehicle.label}</h2>
                 {vehicle.registrationNumber && (
-                  <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                  <span className="font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
                     {vehicle.registrationNumber}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-500 font-medium truncate">
                 {vehicle.driverName || "Corridor Auto"} •{" "}
                 <span className="capitalize">{vehicle.type.toLowerCase()}</span>
               </p>
+              {/* Destination cleanly integrated under vehicle header */}
+              {vehicle.destination ? (
+                <p className="text-xs text-emerald-800 font-bold truncate flex items-center gap-1 mt-0.5">
+                  <Navigation className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span className="truncate">→ {vehicle.destination.name}</span>
+                  {vehicle.destination.via && (
+                    <span className="text-slate-500 font-normal text-[10px] truncate">
+                      (via {vehicle.destination.via})
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400 italic mt-0.5">
+                  Roaming locally along corridor
+                </p>
+              )}
             </div>
           </div>
 
           <button
-            onClick={() => setSelectedVehicleId(null)}
-            className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            onClick={() => {
+              if (onClose) onClose();
+              else setSelectedVehicleId(null);
+            }}
+            className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition shrink-0"
             aria-label="Close vehicle card"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Strict 3-Color Occupancy Indicator Badge & Distance */}
-        <div className="flex items-center justify-between gap-2 mb-3 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+        {/* Occupancy Indicator Badge & Distance */}
+        <div className="flex items-center justify-between gap-2 bg-[#f0fdf4] p-2.5 rounded-2xl border border-emerald-200/90 my-1">
           <div className="flex items-center gap-2">
             <span
               className="w-3 h-3 rounded-full shrink-0"
               style={{
                 backgroundColor: theme.color,
-                boxShadow: `0 0 10px ${theme.color}`,
+                boxShadow: `0 0 6px ${theme.color}`,
               }}
             />
             <div>
-              <span className={`text-xs font-black ${theme.textColor}`}>
+              <span className="text-xs font-black text-emerald-950">
                 {theme.label} ({vehicle.occupancy}/{vehicle.maxCapacity} Seats)
               </span>
-              <span className="text-[10px] text-slate-400 block leading-tight">
+              <span className="text-[10px] text-emerald-700 block leading-tight font-medium">
                 {theme.advice}
               </span>
             </div>
           </div>
 
-          <div className="text-right shrink-0">
-            <span className="text-xs font-bold text-slate-200 flex items-center justify-end gap-1">
-              <Clock className="w-3 h-3 text-blue-400" />
-              <span>~{etaMin} min ETA</span>
-            </span>
-            <span className="text-[10px] text-slate-400">
-              {vehicle.distanceMeters ?? 300}m away
+          <div className="shrink-0">
+            <span className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 font-extrabold text-xs border border-emerald-300 shadow-xs inline-flex items-center gap-1.5">
+              <Navigation className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{vehicle.distanceMeters ?? 300}m away</span>
             </span>
           </div>
         </div>
 
-        {/* Route Path (Dynamic Polyline indicator) */}
-        {vehicle.destination ? (
-          <div className="p-2.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-indigo-200 flex items-start gap-2 mb-3">
-            <Navigation className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-indigo-300 text-[11px] font-bold">Active Path Drawn on Map</span>
-                <span className="text-[10px] bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded-full border border-indigo-500/40 font-mono">
-                  OSM Road Routing
-                </span>
-              </div>
-              <strong className="text-white text-xs block mt-0.5">
-                → {vehicle.destination.name}
-              </strong>
-              {vehicle.destination.via && (
-                <span className="text-slate-400 text-[11px] block">
-                  via {vehicle.destination.via}
-                </span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-slate-500 italic mb-3">
-            Roaming locally along corridor
-          </div>
-        )}
-
-        {/* Ping Driver: Optional Digital Wave CTA */}
-        <button
-          disabled={Boolean(pingedDrivers[vehicle.id])}
-          onClick={() => handleWaveAtDriver(vehicle.id)}
-          className={`w-full py-3 rounded-2xl font-black text-xs shadow-xl flex items-center justify-center gap-2 transition active:scale-95 ${
-            pingedDrivers[vehicle.id]
-              ? "bg-emerald-600 text-white"
-              : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white"
-          }`}
-        >
-          {pingedDrivers[vehicle.id] ? (
-            <>
-              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-              <span>Driver Signaled! Wave your hand when they approach</span>
-            </>
-          ) : (
-            <>
-              <Hand className="w-4 h-4 text-amber-300" />
-              <span>Wave at Driver (Signal Curb Pickup)</span>
-            </>
-          )}
-        </button>
-        <p className="text-[10px] text-slate-500 text-center mt-1.5 font-medium">
-          No booking or payment needed • Acts like waving your arm from the curb
-        </p>
+        {/* Primary Call-To-Action (CTA): Wave at Driver */}
+        <div>
+          <button
+            disabled={Boolean(pingedDrivers[vehicle.id])}
+            onClick={() => handleWaveAtDriver(vehicle.id)}
+            className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs tracking-wide shadow-md flex items-center justify-center gap-2 transition active:scale-[0.98] ${
+              pingedDrivers[vehicle.id]
+                ? "bg-teal-700 text-white shadow-teal-700/20"
+                : "bg-[#059669] hover:bg-[#047857] text-white shadow-emerald-700/20"
+            }`}
+          >
+            {pingedDrivers[vehicle.id] ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                <span>Driver Signaled! Wave as they approach</span>
+              </>
+            ) : (
+              <>
+                <Hand className="w-4 h-4 text-amber-200" />
+                <span>Wave at Driver (Signal Curb Pickup)</span>
+              </>
+            )}
+          </button>
+          <p className="text-[10px] text-slate-500 text-center mt-1.5 font-medium">
+            Signals driver for curb pickup • No booking needed
+          </p>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden bg-slate-950 font-sans select-none">
+    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#f0fbf5] font-sans select-none">
       {/* ====================================================================== */}
       {/* 1. FULL-SCREEN INTERACTIVE LEAFLET MAP                                 */}
       {/* ====================================================================== */}
@@ -476,7 +499,10 @@ export default function PassengerAppPage() {
             lng: v.lng,
             label: v.label,
             status: getOccupancyStatus(v.occupancy, v.maxCapacity),
-            onClick: () => setSelectedVehicleId(v.id),
+            onClick: () => {
+              setSelectedVehicleId(v.id);
+              setIsFleetOpen(true);
+            },
           }))}
           className="w-full h-full"
         />
@@ -485,13 +511,13 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 2. MINIMALIST FLOATING TOP BAR & SEARCH                                 */}
       {/* ====================================================================== */}
-      <header className="absolute top-3 left-3 right-14 sm:right-6 md:max-w-xl md:mx-auto z-30 pointer-events-none">
-        <div className="pointer-events-auto flex flex-col gap-2">
-          {/* Main Search Pill */}
-          <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl">
-            <div className="flex items-center gap-1.5 pl-2.5 shrink-0">
-              <span className="text-base font-black tracking-tight text-white">
-                Spot<span className="text-blue-500">Hail</span>
+      <header className="absolute top-3 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-[500px] z-30 pointer-events-none">
+        <div className="pointer-events-auto flex flex-col gap-1.5">
+          {/* Main Search & Action Bar */}
+          <div className="flex items-center gap-2 bg-white/90 backdrop-blur-2xl border border-emerald-200/90 rounded-2xl p-1.5 shadow-md">
+            <div className="flex items-center gap-1 pl-2 shrink-0">
+              <span className="text-sm font-black tracking-tight text-slate-900">
+                Spot<span className="text-emerald-600">Hail</span>
               </span>
             </div>
 
@@ -501,8 +527,8 @@ export default function PassengerAppPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Where are you standing? (e.g. Main Gate)..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs sm:text-sm bg-slate-950/80 text-white rounded-xl border border-slate-800 focus:outline-none focus:border-blue-500 transition placeholder:text-slate-500"
+                placeholder="Search campus destination..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-emerald-50/50 text-slate-900 rounded-xl border border-emerald-100 focus:outline-none focus:border-emerald-500 transition placeholder:text-slate-400 font-medium"
               />
             </div>
 
@@ -510,10 +536,9 @@ export default function PassengerAppPage() {
             <button
               onClick={handleUseGPS}
               title="Locate me with GPS"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition shrink-0 active:scale-95"
+              className="p-1.5 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 border border-blue-200 shadow-sm transition shrink-0 active:scale-95"
             >
               <LocateFixed className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">GPS</span>
             </button>
 
             {/* Link to Driver Mode */}
@@ -521,17 +546,17 @@ export default function PassengerAppPage() {
               href={driverAppUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition shrink-0 flex items-center gap-1 shadow-sm"
+              className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold transition shrink-0 flex items-center gap-1 shadow-sm"
               title="Open Driver Cockpit"
             >
               <span>Driver</span>
-              <ArrowUpRight className="w-3 h-3 text-slate-400" />
+              <ArrowUpRight className="w-3 h-3 text-emerald-600" />
             </a>
           </div>
 
           {/* Search Suggestions Dropdown */}
           {searchSuggestions.length > 0 && (
-            <div className="bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 overflow-hidden divide-y divide-slate-800 max-h-48 overflow-y-auto">
+            <div className="bg-white/95 backdrop-blur-2xl rounded-2xl shadow-xl border border-emerald-200 overflow-hidden divide-y divide-emerald-100 max-h-48 overflow-y-auto">
               {searchSuggestions.map((place) => (
                 <button
                   key={place.id}
@@ -541,282 +566,210 @@ export default function PassengerAppPage() {
                     setSearchQuery(place.text);
                     setSearchSuggestions([]);
                   }}
-                  className="w-full text-left px-3.5 py-2.5 text-xs text-slate-200 hover:bg-slate-800 flex items-center gap-2.5 transition"
+                  className="w-full text-left px-3.5 py-2 text-xs text-slate-800 hover:bg-emerald-50 flex items-center gap-2.5 transition"
                 >
-                  <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                  <span className="font-bold truncate">{place.text}</span>
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="font-semibold truncate">{place.text}</span>
                 </button>
               ))}
             </div>
           )}
-
-          {/* Quick Landmark Chips + Vehicle Filter Row */}
-          <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar py-0.5">
-            {/* Quick Campus Chips */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {CAMPUS_LOCATIONS.slice(0, 3).map((loc) => (
-                <button
-                  key={loc.id}
-                  onClick={() => {
-                    const [lng, lat] = loc.center;
-                    setUserPos({ lat, lng });
-                    setSearchQuery(loc.text);
-                  }}
-                  className="px-2.5 py-1 rounded-xl bg-slate-900/85 backdrop-blur-md hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-700/70 shadow-sm transition whitespace-nowrap"
-                >
-                  {loc.text}
-                </button>
-              ))}
-            </div>
-
-            {/* Vehicle Type Toggle: All / Autos / E-Rickshaws */}
-            <div className="flex items-center bg-slate-900/90 backdrop-blur-md p-0.5 rounded-xl border border-slate-700/80 shadow-md shrink-0 text-[11px]">
-              <button
-                onClick={() => setVehicleFilter("ALL")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  vehicleFilter === "ALL" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setVehicleFilter("AUTO")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  vehicleFilter === "AUTO" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Autos
-              </button>
-              <button
-                onClick={() => setVehicleFilter("ERICKSHAW")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  vehicleFilter === "ERICKSHAW" ? "bg-blue-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                E-Rickshaws
-              </button>
-            </div>
-          </div>
         </div>
       </header>
 
       {/* ====================================================================== */}
-      {/* 3. TOP-RIGHT STACK: THEME SWITCHER (ABOVE) & OCCUPANCY LEGEND (BELOW)  */}
+      {/* 3. TOP-RIGHT CONTROLS: LAYER STACK ICON & OCCUPANCY LEGEND             */}
       {/* ====================================================================== */}
-      {/* DESKTOP VIEW: Stacked on Top-Right */}
-      <div className="hidden md:flex absolute top-3 right-6 z-30 flex-col items-end gap-2 pointer-events-auto">
-        {/* Map Theme Switcher Pill (Streets / Dark / Satellite) */}
-        <div className="flex items-center bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-xl text-[11px] font-bold">
-          <button
-            type="button"
-            onClick={() => setMapTheme("streets")}
-            className={`px-2.5 py-1 rounded-lg transition ${
-              mapTheme === "streets"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-white"
-            }`}
-            title="OpenStreetMap Streets"
-          >
-            Streets
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapTheme("dark")}
-            className={`px-2.5 py-1 rounded-lg transition ${
-              mapTheme === "dark"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-white"
-            }`}
-            title="Dark Mode"
-          >
-            Dark
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapTheme("satellite")}
-            className={`px-2.5 py-1 rounded-lg transition ${
-              mapTheme === "satellite"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-white"
-            }`}
-            title="Satellite Imagery"
-          >
-            Satellite
-          </button>
-        </div>
-
+      <div className="absolute top-3 right-4 z-30 flex items-center gap-2 pointer-events-auto">
         {/* Strict 3-Color Occupancy Indicator Legend Pill */}
-        <div className="flex items-center gap-3 text-[11px] font-bold bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-lg text-slate-300">
+        <div className="hidden sm:flex items-center gap-2.5 text-[11px] font-bold bg-white/90 backdrop-blur-2xl px-3.5 py-1.5 rounded-full border border-emerald-200/90 shadow-md text-slate-700">
           <span className="flex items-center gap-1.5" title="Plenty of seats open">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
             <span>Empty</span>
           </span>
           <span className="flex items-center gap-1.5" title="Has space, wave down!">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+            <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.8)]" />
             <span>Partly Full</span>
           </span>
           <span className="flex items-center gap-1.5" title="Full, don't bother waving">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+            <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
             <span>Full</span>
           </span>
         </div>
-      </div>
 
-      {/* MOBILE VIEW: Collapsible Theme Switcher Button in Top-Right */}
-      <div className="md:hidden absolute top-3 right-3 z-40">
-        <button
-          onClick={() => setIsMobileThemeOpen((prev) => !prev)}
-          className="p-2.5 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 text-blue-400 shadow-2xl flex items-center justify-center active:scale-95 transition"
-          aria-label="Toggle map layer style"
-          title="Change map style"
-        >
-          <Layers className="w-4 h-4" />
-        </button>
-
-        {/* Mobile Dropdown Menu */}
-        {isMobileThemeOpen && (
-          <div className="absolute right-0 mt-2 bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2">
-            <span className="text-[10px] font-black text-slate-400 px-2 py-0.5 uppercase tracking-wider">
-              Map Style
-            </span>
-            <button
-              onClick={() => {
-                setMapTheme("streets");
-                setIsMobileThemeOpen(false);
-              }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
-                mapTheme === "streets" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              Streets
-            </button>
-            <button
-              onClick={() => {
-                setMapTheme("dark");
-                setIsMobileThemeOpen(false);
-              }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
-                mapTheme === "dark" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              Dark
-            </button>
-            <button
-              onClick={() => {
-                setMapTheme("satellite");
-                setIsMobileThemeOpen(false);
-              }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
-                mapTheme === "satellite" ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              Satellite
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ====================================================================== */}
-      {/* 4. DESKTOP LEFT DOCK: NEARBY FLEET (STRICTLY ABOVE DETAIL BOX) + CARD */}
-      {/* ====================================================================== */}
-      <div className="hidden lg:flex flex-col absolute top-20 left-6 bottom-4 z-30 w-[360px] pointer-events-none gap-3 max-h-[calc(100dvh-6rem)]">
-        {/* Nearby Fleet Box (Flexes to fill space strictly above the detail box) */}
-        <div
-          className={`pointer-events-auto flex flex-col bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
-            isFleetListOpen
-              ? selectedVehicle
-                ? "flex-1 min-h-[160px]"
-                : "max-h-[70vh] flex-1 min-h-[160px]"
-              : "h-12 shrink-0"
-          }`}
-        >
-          {/* Header Toggle */}
+        {/* Consolidated Layer-Stack Icon Button (White & Green Theme) */}
+        <div className="relative">
           <button
-            onClick={() => setIsFleetListOpen((prev) => !prev)}
-            className="w-full px-4 py-3 flex items-center justify-between text-xs font-black text-white hover:bg-slate-800/60 transition shrink-0"
+            onClick={() => setIsThemeMenuOpen((prev) => !prev)}
+            className={`w-9 h-9 rounded-full border shadow-md flex items-center justify-center active:scale-95 transition-all ${
+              isThemeMenuOpen
+                ? "bg-emerald-600 text-white border-emerald-600 shadow-emerald-600/25 ring-2 ring-emerald-200"
+                : "bg-white/95 backdrop-blur-2xl border-emerald-200/90 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900"
+            }`}
+            aria-label="Toggle map layer style"
+            title="Change map style"
           >
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-blue-400" />
-              <span>Nearby Fleet ({filteredVehicles.length})</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-slate-400">
-              <span className="text-[11px] font-mono">Within 2.5km</span>
-              {isFleetListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </div>
+            <Layers className="w-4 h-4 stroke-[2.2]" />
           </button>
 
-          {/* Smooth Scrollable Vehicle List */}
-          {isFleetListOpen && (
-            <div className="p-2 space-y-1.5 overflow-y-auto divide-y divide-slate-800/60 flex-1 min-h-0">
-              {filteredVehicles.map((v) => {
-                const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
-                const theme = getOccupancyTheme(status);
-                const isSelected = v.id === selectedVehicleId;
-
-                return (
-                  <div
-                    key={v.id}
-                    onClick={() => setSelectedVehicleId(v.id)}
-                    className={`p-2.5 rounded-2xl cursor-pointer transition border ${
-                      isSelected
-                        ? "bg-blue-950/70 border-blue-500 shadow-md"
-                        : "bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-white border border-slate-700 flex items-center justify-center p-0.5 overflow-hidden shrink-0 shadow-sm">
-                          <img
-                            src={v.type === "ERICKSHAW" ? "/icons/erickshaw.jpg" : "/icons/auto.jpg"}
-                            alt={v.label}
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
-                        <span className="font-extrabold text-xs text-white">{v.label}</span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: theme.color }}
-                        />
-                        <span className={`text-[11px] font-bold ${theme.textColor}`}>
-                          {theme.label} ({v.occupancy}/{v.maxCapacity})
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-400">
-                      <span>{v.distanceMeters ?? 300}m away</span>
-                      {v.destination?.name ? (
-                        <span className="text-slate-300 font-medium truncate max-w-[140px]">
-                          → {v.destination.name}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500 italic">Roaming</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Dropdown Menu (Streets / Dark / Satellite) */}
+          {isThemeMenuOpen && (
+            <div className="absolute right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-2xl p-1.5 shadow-xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2">
+              <span className="text-[10px] font-black text-emerald-800/70 px-2 py-0.5 uppercase tracking-wider">
+                Map Style
+              </span>
+              <button
+                onClick={() => {
+                  setMapTheme("streets");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "streets" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Streets
+              </button>
+              <button
+                onClick={() => {
+                  setMapTheme("dark");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "dark" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                onClick={() => {
+                  setMapTheme("satellite");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "satellite" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Satellite
+              </button>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Selected Vehicle Detail Box (Anchored directly beneath Nearby Fleet) */}
-        {selectedVehicle && (
-          <div className="pointer-events-auto shrink-0 animate-in slide-in-from-bottom-2 duration-200">
-            {renderVehicleDetailCard(selectedVehicle)}
-          </div>
-        )}
+      {/* ====================================================================== */}
+      {/* 4. COLLAPSIBLE NEARBY FLEET COLUMN (ALIGNED TO LEFT OF SEARCH BOX)     */}
+      {/* ====================================================================== */}
+      <div className="absolute top-16 left-4 sm:top-3 sm:left-6 z-30 w-[calc(100vw-2rem)] sm:w-[340px] pointer-events-auto">
+        <div className="flex flex-col bg-[#f0fbf5]/95 backdrop-blur-2xl border border-emerald-200/90 rounded-3xl shadow-xl overflow-hidden transition-all duration-300">
+          {/* Column Header (Click to drop down or collapse) */}
+          <button
+            onClick={() => setIsFleetOpen((prev) => !prev)}
+            className="w-full h-11 px-3.5 flex items-center justify-between text-xs font-black text-slate-900 hover:bg-white/60 transition select-none cursor-pointer group"
+            aria-expanded={isFleetOpen}
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                <CarFront className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-xs font-extrabold tracking-tight text-slate-900">Nearby Fleet</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold border border-emerald-200/60">
+                {filteredVehicles.length}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-slate-500 group-hover:text-slate-800 transition">
+              <span className="text-[11px] font-medium">Within 2.5km</span>
+              <div
+                className={`p-0.5 rounded-lg transition-transform duration-300 ${
+                  isFleetOpen ? "rotate-180 text-emerald-600" : ""
+                }`}
+              >
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+
+          {/* Dropped Down Contents */}
+          {isFleetOpen && (
+            <div className="flex flex-col divide-y divide-emerald-100 animate-in fade-in slide-in-from-top-3 duration-300 ease-out border-t border-emerald-200/70">
+              {/* Scrollable Vehicle List */}
+              <div className="p-2 space-y-2 overflow-y-auto max-h-[42vh]">
+                {filteredVehicles.map((v) => {
+                  const status = getOccupancyStatus(v.occupancy, v.maxCapacity);
+                  const theme = getOccupancyTheme(status);
+                  const isSelected = v.id === selectedVehicleId;
+
+                  return (
+                    <div
+                      key={v.id}
+                      onClick={() => setSelectedVehicleId(v.id)}
+                      className={`p-2.5 rounded-2xl cursor-pointer transition border ${
+                        isSelected
+                          ? "bg-white border-emerald-500 shadow-md ring-2 ring-emerald-500/20"
+                          : "bg-white/90 border-emerald-100 hover:border-emerald-300 hover:bg-white shadow-sm"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-center p-0.5 overflow-hidden shrink-0 shadow-sm">
+                            <img
+                              src={v.type === "ERICKSHAW" ? "/icons/erickshaw.jpg" : "/icons/auto.jpg"}
+                              alt={v.label}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <span className="font-extrabold text-xs text-slate-900">{v.label}</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: theme.color }}
+                          />
+                          <span className={`text-[11px] font-bold ${
+                            status === "EMPTY"
+                              ? "text-emerald-700"
+                              : status === "FULL"
+                              ? "text-rose-700"
+                              : "text-amber-700"
+                          }`}>
+                            {theme.label} ({v.occupancy}/{v.maxCapacity})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>{v.distanceMeters ?? 300}m away</span>
+                        {v.destination?.name ? (
+                          <span className="text-slate-700 font-semibold truncate max-w-[150px]">
+                            → {v.destination.name}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Roaming</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Docked Selected Vehicle Card */}
+              {selectedVehicle && (
+                <div className="shrink-0 bg-white border-t border-emerald-200/80 p-3.5 shadow-sm">
+                  {renderVehicleDetailContent(selectedVehicle)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ====================================================================== */}
       {/* 5. MOBILE BOTTOM SHEET: SELECTED VEHICLE DETAIL CARD                   */}
       {/* ====================================================================== */}
-      {selectedVehicle && (
-        <div className="lg:hidden absolute bottom-3 left-3 right-3 z-30 animate-in slide-in-from-bottom-3 duration-200">
-          {renderVehicleDetailCard(selectedVehicle)}
+      {selectedVehicle && !isFleetOpen && (
+        <div className="lg:hidden absolute bottom-3 left-3 right-3 z-30 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-3xl p-4 shadow-xl animate-in slide-in-from-bottom-3 duration-200">
+          {renderVehicleDetailContent(selectedVehicle, () => setSelectedVehicleId(null))}
         </div>
       )}
     </div>
