@@ -58,16 +58,25 @@ export default function DriverHudPage() {
   const [recenterTrigger, setRecenterTrigger] = useState(0);
 
   const backendUrl = useMemo(() => {
-    let envUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_SOCKET_SERVER_URL;
+    let envUrl =
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      process.env.NEXT_PUBLIC_SOCKET_SERVER_URL;
     if (envUrl) {
+      envUrl = envUrl.trim().replace(/\/$/, "");
       if (!envUrl.startsWith("http://") && !envUrl.startsWith("https://")) {
         envUrl = `https://${envUrl}`;
       }
-      if (!envUrl.includes("localhost")) {
+      if (!envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
         return envUrl;
       }
     }
-    if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost") {
+    if (
+      typeof window !== "undefined" &&
+      window.location.hostname &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1"
+    ) {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       return `${protocol}//${window.location.hostname}:4000`;
     }

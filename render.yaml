@@ -22,6 +22,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: spothail-backend
+          property: host
       - key: NEXT_PUBLIC_SOCKET_SERVER_URL
         fromService:
           type: web
@@ -39,6 +44,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: spothail-backend
+          property: host
       - key: NEXT_PUBLIC_SOCKET_SERVER_URL
         fromService:
           type: web

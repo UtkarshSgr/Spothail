@@ -1,20 +1,22 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { VehicleType } from "@/types/spothail";
+import { VehicleType, PassengerPing } from "@/types/spothail";
 
-interface DriverLeafletMapProps {
+export interface DriverLeafletMapProps {
   driverLat: number;
   driverLng: number;
   driverHeading?: number;
   vehicleType?: VehicleType;
   destination?: { name: string; via?: string; center?: [number, number]; lat?: number; lng?: number } | null;
   routePolyline?: [number, number][] | null;
-  pings?: Array<{ lat: number; lng: number; timestamp?: number; id?: string }>;
+  pings?: PassengerPing[];
   isMinimized?: boolean;
   recenterTrigger?: number;
   className?: string;
 }
+
+export type { PassengerPing };
 
 export function DriverLeafletMap({
   driverLat,
@@ -292,12 +294,19 @@ export function DriverLeafletMap({
         className: "",
       });
 
+      const distanceDisplay =
+        typeof ping.distanceMeters === "number" && !Number.isNaN(ping.distanceMeters)
+          ? ping.distanceMeters >= 1000
+            ? `${(ping.distanceMeters / 1000).toFixed(1)} km`
+            : `${Math.round(ping.distanceMeters)}m`
+          : "300m";
+
       const marker = L.current
         .marker([ping.lat, ping.lng], { icon, zIndexOffset: 1500 })
         .addTo(mapRef.current)
         .bindPopup(
           `<div style="font-family:sans-serif;font-size:12px;">
-            <b style="color:#16a34a">Passenger Waiting!</b><br/>Standing near curb for pickup (~${ping.distanceMeters || 300}m)
+            <b style="color:#16a34a">Passenger Waiting!</b><br/>Standing near curb for pickup (~${distanceDisplay})
           </div>`
         );
 

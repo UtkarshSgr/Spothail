@@ -28,8 +28,10 @@ services:
       - NODE_ENV=development
       - PORT=3000
       - WATCHPACK_POLLING=true
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
       - NEXT_PUBLIC_SOCKET_SERVER_URL=http://localhost:4000
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+      - NEXT_PUBLIC_DRIVER_APP_URL=http://localhost:3001
     env_file:
       - path: ./passenger-app/.env.local
         required: false
@@ -53,6 +55,7 @@ services:
       - NODE_ENV=development
       - PORT=3001
       - WATCHPACK_POLLING=true
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
       - NEXT_PUBLIC_SOCKET_SERVER_URL=http://localhost:4000
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
     env_file:

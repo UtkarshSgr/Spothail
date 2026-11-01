@@ -47,9 +47,9 @@ export interface DriverState {
 }
 
 export interface PassengerPing {
-  id: string;
+  id?: string;
   lat: number;
   lng: number;
-  timestamp: number;
+  timestamp?: number;
   distanceMeters?: number;
 }

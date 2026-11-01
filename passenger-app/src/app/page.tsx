@@ -78,8 +78,16 @@ export default function PassengerAppPage() {
   const [routePolylines, setRoutePolylines] = useState<Record<string, [number, number][]>>({});
   const [vehicleEtas, setVehicleEtas] = useState<Record<string, number>>({});
 
-  // Dynamic Driver Cockpit link based on accessed host
+  // Dynamic Driver Cockpit link based on accessed host or env
   const driverAppUrl = useMemo(() => {
+    let envDriverUrl = process.env.NEXT_PUBLIC_DRIVER_APP_URL;
+    if (envDriverUrl) {
+      envDriverUrl = envDriverUrl.trim().replace(/\/$/, "");
+      if (!envDriverUrl.startsWith("http://") && !envDriverUrl.startsWith("https://")) {
+        envDriverUrl = `https://${envDriverUrl}`;
+      }
+      return envDriverUrl;
+    }
     if (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost") {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       return `${protocol}//${window.location.hostname}:3001`;
