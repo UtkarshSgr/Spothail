@@ -13,6 +13,8 @@ export interface DriverLeafletMapProps {
   pings?: PassengerPing[];
   isMinimized?: boolean;
   recenterTrigger?: number;
+  zoomTrigger?: { action: "in" | "out"; count: number } | null;
+  onMapClick?: () => void;
   className?: string;
 }
 
@@ -27,6 +29,8 @@ export function DriverLeafletMap({
   pings = [],
   isMinimized,
   recenterTrigger,
+  zoomTrigger,
+  onMapClick,
   className = "w-full h-full",
 }: DriverLeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,6 +43,11 @@ export function DriverLeafletMap({
   const routeLineRef = useRef<any>(null);
   const pingMarkersRef = useRef<any[]>([]);
   const L = useRef<any>(null);
+  const onMapClickRef = useRef(onMapClick);
+
+  useEffect(() => {
+    onMapClickRef.current = onMapClick;
+  }, [onMapClick]);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">("streets");
@@ -104,7 +113,9 @@ export function DriverLeafletMap({
       initialLayer.addTo(map);
       tileLayerRef.current = initialLayer;
 
-      leaflet.control.zoom({ position: "bottomright" }).addTo(map);
+      map.on("click", () => {
+        onMapClickRef.current?.();
+      });
 
       mapRef.current = map;
       setMapReady(true);
@@ -141,6 +152,16 @@ export function DriverLeafletMap({
     if (!mapRef.current || !recenterTrigger) return;
     mapRef.current.setView([driverLat, driverLng], 15.5, { animate: true });
   }, [recenterTrigger, driverLat, driverLng]);
+
+  // ── Programmatic Zoom Trigger (+ / -) ──────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current || !zoomTrigger) return;
+    if (zoomTrigger.action === "in") {
+      mapRef.current.zoomIn();
+    } else if (zoomTrigger.action === "out") {
+      mapRef.current.zoomOut();
+    }
+  }, [zoomTrigger]);
 
   // ── Driver Position Marker (Uploaded Vehicle Icon) ─────────────────────
   useEffect(() => {

@@ -56,6 +56,7 @@ export default function DriverHudPage() {
   const [pings, setPings] = useState<PassengerPing[]>([]);
   const [, setSocketConnected] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
+  const [zoomTrigger, setZoomTrigger] = useState<{ action: "in" | "out"; count: number } | null>(null);
 
   const backendUrl = useMemo(() => {
     let envUrl =
@@ -399,14 +400,16 @@ export default function DriverHudPage() {
           pings={pings}
           isMinimized={false}
           recenterTrigger={recenterTrigger}
+          zoomTrigger={zoomTrigger}
           className="w-full h-full"
         />
       </section>
 
       {/* ====================================================================== */}
-      {/* 3. FLOATING RE-CENTER COMPASS BUTTON                                   */}
+      {/* 3. FLOATING MAP CONTROLS (COMPASS & ZOOM STACK)                        */}
       {/* ====================================================================== */}
-      <div className="absolute bottom-24 right-3 sm:right-4 z-20 pointer-events-auto">
+      <div className="absolute bottom-[115px] sm:bottom-28 right-3 sm:right-4 z-20 flex flex-col gap-2 pointer-events-auto">
+        {/* Re-center Compass Button */}
         <button
           onClick={() => setRecenterTrigger((prev) => prev + 1)}
           className="p-2.5 rounded-2xl bg-white/95 border border-emerald-200 text-emerald-700 shadow-md active:scale-90 transition flex items-center justify-center hover:bg-emerald-50"
@@ -414,6 +417,28 @@ export default function DriverHudPage() {
           title="Re-center on vehicle"
         >
           <Compass className="w-4 h-4" />
+        </button>
+
+        {/* Zoom In Button */}
+        <button
+          type="button"
+          onClick={() => setZoomTrigger((prev) => ({ action: "in", count: (prev?.count ?? 0) + 1 }))}
+          className="w-9 h-9 rounded-2xl bg-white/95 border border-emerald-200 text-slate-700 hover:text-emerald-700 hover:bg-emerald-50 shadow-md flex items-center justify-center font-bold text-base active:scale-90 transition select-none"
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          +
+        </button>
+
+        {/* Zoom Out Button */}
+        <button
+          type="button"
+          onClick={() => setZoomTrigger((prev) => ({ action: "out", count: (prev?.count ?? 0) + 1 }))}
+          className="w-9 h-9 rounded-2xl bg-white/95 border border-emerald-200 text-slate-700 hover:text-emerald-700 hover:bg-emerald-50 shadow-md flex items-center justify-center font-bold text-base active:scale-90 transition select-none"
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          −
         </button>
       </div>
 

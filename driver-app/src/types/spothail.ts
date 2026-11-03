@@ -1,5 +1,5 @@
 export type VehicleType = 'AUTO' | 'ERICKSHAW';
-export type SeatCapacity = 3 | 4;
+export type SeatCapacity = 3 | 4 | 6;
 export type OccupancyStatus = 'EMPTY' | 'HAS_SPACE' | 'FULL';
 
 export function getOccupancyStatus(occupancy: number, maxCapacity: number): OccupancyStatus {
