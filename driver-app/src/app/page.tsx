@@ -57,6 +57,7 @@ export default function DriverHudPage() {
   const [, setSocketConnected] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
   const [zoomTrigger, setZoomTrigger] = useState<{ action: "in" | "out"; count: number } | null>(null);
+  const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">("streets");
 
   const backendUrl = useMemo(() => {
     let envUrl =
@@ -385,6 +386,9 @@ export default function DriverHudPage() {
           })
         }
         triggerHaptics={triggerHaptics}
+        mapTheme={mapTheme}
+        onSelectMapTheme={setMapTheme}
+        onRecenter={() => setRecenterTrigger((prev) => prev + 1)}
       />
 
       {/* ====================================================================== */}
@@ -401,6 +405,8 @@ export default function DriverHudPage() {
           isMinimized={false}
           recenterTrigger={recenterTrigger}
           zoomTrigger={zoomTrigger}
+          mapTheme={mapTheme}
+          onMapThemeChange={setMapTheme}
           className="w-full h-full"
         />
       </section>

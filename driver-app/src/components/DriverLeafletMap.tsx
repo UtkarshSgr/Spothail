@@ -16,6 +16,8 @@ export interface DriverLeafletMapProps {
   zoomTrigger?: { action: "in" | "out"; count: number } | null;
   onMapClick?: () => void;
   className?: string;
+  mapTheme?: "streets" | "dark" | "satellite";
+  onMapThemeChange?: (theme: "streets" | "dark" | "satellite") => void;
 }
 
 export type { PassengerPing };
@@ -32,6 +34,8 @@ export function DriverLeafletMap({
   zoomTrigger,
   onMapClick,
   className = "w-full h-full",
+  mapTheme = "streets",
+  onMapThemeChange,
 }: DriverLeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -50,11 +54,9 @@ export function DriverLeafletMap({
   }, [onMapClick]);
 
   const [mapReady, setMapReady] = useState(false);
-  const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">("streets");
 
   // ── Switch Map Theme / Tile Provider (Zero API Key) ─────────────────────
   const changeTheme = useCallback((theme: "streets" | "dark" | "satellite") => {
-    setMapTheme(theme);
     if (!mapRef.current || !L.current) return;
 
     if (tileLayerRef.current) {
@@ -84,6 +86,12 @@ export function DriverLeafletMap({
       tileLayerRef.current = osmLayer;
     }
   }, []);
+
+  // Sync theme when mapTheme prop updates
+  useEffect(() => {
+    if (!mapReady) return;
+    changeTheme(mapTheme);
+  }, [mapTheme, mapReady, changeTheme]);
 
   // ── Initialize Leaflet Map ───────────────────────────────────────────────
   useEffect(() => {
@@ -371,40 +379,6 @@ export function DriverLeafletMap({
         }
         .leaflet-attribution-flag { display: none; }
       `}</style>
-
-      {/* Theme Switcher Pill (Streets / Dark / Satellite - Clean Light Mint Pill) */}
-      <div className="absolute top-14 left-3 z-[1000] flex items-center bg-white/95 backdrop-blur-md border border-emerald-200/90 rounded-xl p-1 shadow-md">
-        <button
-          type="button"
-          onClick={() => changeTheme("streets")}
-          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "streets" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
-          }`}
-          title="OpenStreetMap Streets"
-        >
-          Streets
-        </button>
-        <button
-          type="button"
-          onClick={() => changeTheme("dark")}
-          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "dark" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
-          }`}
-          title="Dark Mode"
-        >
-          Dark
-        </button>
-        <button
-          type="button"
-          onClick={() => changeTheme("satellite")}
-          className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition ${
-            mapTheme === "satellite" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
-          }`}
-          title="Satellite Imagery"
-        >
-          Satellite
-        </button>
-      </div>
 
       {!mapReady && (
         <div className="absolute inset-0 z-[2000] flex flex-col items-center justify-center bg-slate-950 gap-2">

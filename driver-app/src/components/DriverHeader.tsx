@@ -15,6 +15,8 @@ import {
   CheckCircle2,
   Clock,
   User,
+  Layers,
+  LocateFixed,
 } from "lucide-react";
 import {
   CorridorDestination,
@@ -39,6 +41,9 @@ export interface DriverHeaderProps {
   triggerHaptics?: () => void;
   isSettingsOpen?: boolean;
   setIsSettingsOpen?: React.Dispatch<React.SetStateAction<boolean>>;
+  mapTheme?: "streets" | "dark" | "satellite";
+  onSelectMapTheme?: (theme: "streets" | "dark" | "satellite") => void;
+  onRecenter?: () => void;
 }
 
 export const DriverHeader: React.FC<DriverHeaderProps> = ({
@@ -56,16 +61,22 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
   triggerHaptics,
   isSettingsOpen: externalIsSettingsOpen,
   setIsSettingsOpen: externalSetIsSettingsOpen,
+  mapTheme = "streets",
+  onSelectMapTheme,
+  onRecenter,
 }) => {
   const [internalIsSettingsOpen, setInternalIsSettingsOpen] = useState(false);
   const [isDestDropdownOpen, setIsDestDropdownOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [destSearch, setDestSearch] = useState("");
   const [expandedDestinationId, setExpandedDestinationId] = useState<string | null>(null);
 
   const destDropdownRef = useRef<HTMLDivElement>(null);
   const destTriggerRef = useRef<HTMLButtonElement>(null);
+  const layersDropdownRef = useRef<HTMLDivElement>(null);
+  const layersTriggerRef = useRef<HTMLButtonElement>(null);
 
-  // Global click-outside listener to auto-collapse destination dropdown
+  // Global click-outside listener to auto-collapse destination dropdown and theme menu
   useEffect(() => {
     const handlePointerDown = (e: MouseEvent | PointerEvent | TouchEvent) => {
       const target = e.target as Node | null;
@@ -79,11 +90,21 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
       ) {
         setIsDestDropdownOpen(false);
       }
+
+      if (
+        isThemeMenuOpen &&
+        layersDropdownRef.current &&
+        !layersDropdownRef.current.contains(target) &&
+        (!layersTriggerRef.current || !layersTriggerRef.current.contains(target))
+      ) {
+        setIsThemeMenuOpen(false);
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isDestDropdownOpen) {
-        setIsDestDropdownOpen(false);
+      if (e.key === "Escape") {
+        if (isDestDropdownOpen) setIsDestDropdownOpen(false);
+        if (isThemeMenuOpen) setIsThemeMenuOpen(false);
       }
     };
 
@@ -93,7 +114,7 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
       document.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isDestDropdownOpen]);
+  }, [isDestDropdownOpen, isThemeMenuOpen]);
 
   const isSettingsOpen =
     externalIsSettingsOpen !== undefined
@@ -130,7 +151,7 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
       {/* ====================================================================== */}
       {/* 1. TOP COMMAND BAR                                                     */}
       {/* ====================================================================== */}
-      <header className="absolute top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md px-3 py-2 border-b border-emerald-200/90 flex items-center justify-between gap-2 shadow-sm">
+      <header className="absolute top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-3 py-2 border-b border-emerald-200/90 flex items-center justify-between gap-2 shadow-sm">
         {/* Left: Branding */}
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm font-black tracking-tight text-slate-900 select-none">
@@ -146,18 +167,21 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
             onClick={() => {
               setIsDestDropdownOpen((prev) => {
                 const next = !prev;
-                if (next && activeDestination) {
-                  setExpandedDestinationId(activeDestination.id);
+                if (next) {
+                  setIsThemeMenuOpen(false);
+                  if (activeDestination) {
+                    setExpandedDestinationId(activeDestination.id);
+                  }
                 }
                 return next;
               });
             }}
             className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-white border border-emerald-200 hover:border-emerald-300 text-left transition text-xs shadow-sm"
           >
-            <div className="flex items-center gap-1.5 truncate">
+            <div className="flex items-center gap-2 truncate flex-1 min-w-0">
               <Navigation className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               {activeDestination ? (
-                <div className="flex items-center gap-1.5 truncate">
+                <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
                   <span className="font-bold text-slate-900 truncate">
                     → {activeDestination.name}
                   </span>
@@ -203,6 +227,100 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
           </button>
         </div>
       </header>
+
+      {/* ====================================================================== */}
+      {/* 2. TOP-RIGHT FLOATING MAP CONTROLS (GPS CROSSHAIR & MAP LAYERS)        */}
+      {/* ====================================================================== */}
+      <div className="absolute top-[75px] right-3 sm:right-4 z-20 flex flex-col items-center gap-2 pointer-events-auto">
+        {/* Blue GPS Crosshair Icon Button */}
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptics?.();
+            onRecenter?.();
+          }}
+          title="Locate me / Re-center vehicle"
+          aria-label="Locate me with GPS"
+          className="w-9 h-9 rounded-2xl bg-white/95 border border-emerald-200 text-blue-600 hover:text-blue-700 hover:bg-blue-50/50 shadow-md transition shrink-0 active:scale-90 flex items-center justify-center backdrop-blur-md"
+        >
+          <LocateFixed className="w-4 h-4" />
+        </button>
+
+        {/* Green Map Layers Icon Button & Dropdown */}
+        <div className="relative shrink-0" ref={layersDropdownRef}>
+          <button
+            ref={layersTriggerRef}
+            type="button"
+            onClick={() => {
+              triggerHaptics?.();
+              setIsThemeMenuOpen((prev) => {
+                const next = !prev;
+                if (next) {
+                  setIsDestDropdownOpen(false);
+                }
+                return next;
+              });
+            }}
+            className={`w-9 h-9 rounded-2xl border shadow-md flex items-center justify-center active:scale-90 transition-all ${
+              isThemeMenuOpen
+                ? "bg-emerald-600 text-white border-emerald-600 shadow-emerald-600/25 ring-2 ring-emerald-200"
+                : "bg-white/95 backdrop-blur-2xl border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900"
+            }`}
+            aria-label="Toggle map layer style"
+            title="Change map style"
+          >
+            <Layers className="w-4 h-4 stroke-[2.2]" />
+          </button>
+
+          {/* Dropdown Menu (Streets / Dark / Satellite) */}
+          {isThemeMenuOpen && (
+            <div className="absolute right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-2xl p-1.5 shadow-xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2 z-30">
+              <span className="text-[10px] font-black text-emerald-800/70 px-2 py-0.5 uppercase tracking-wider">
+                Map Style
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptics?.();
+                  onSelectMapTheme?.("streets");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "streets" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Streets
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptics?.();
+                  onSelectMapTheme?.("dark");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "dark" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptics?.();
+                  onSelectMapTheme?.("satellite");
+                  setIsThemeMenuOpen(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-left transition ${
+                  mapTheme === "satellite" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-700 hover:bg-emerald-50"
+                }`}
+              >
+                Satellite
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ====================================================================== */}
       {/* 2. EXPANDED DESTINATION & ROUTE DROPDOWN PANEL OVERLAY                  */}
