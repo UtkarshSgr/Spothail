@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import {
   Search,
@@ -76,6 +76,33 @@ export default function PassengerAppPage() {
   // Dynamic Polyline cache for tapped vehicles
   const [routePolylines, setRoutePolylines] = useState<Record<string, [number, number][]>>({});
   const [vehicleEtas, setVehicleEtas] = useState<Record<string, number>>({});
+
+  // Refs for click-outside auto-collapse
+  const fleetRef = useRef<HTMLDivElement>(null);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  // Global click-away / click-outside listener to auto-collapse open menus
+  useEffect(() => {
+    const handlePointerDown = (e: MouseEvent | PointerEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+
+      // When clicking outside the open Nearby Fleet menu, collapse it
+      if (isFleetOpen && fleetRef.current && !fleetRef.current.contains(target)) {
+        setIsFleetOpen(false);
+      }
+
+      // When clicking outside the open Map Layer dropdown, collapse it
+      if (isThemeMenuOpen && themeMenuRef.current && !themeMenuRef.current.contains(target)) {
+        setIsThemeMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isFleetOpen, isThemeMenuOpen]);
 
 
   // Connect to Socket.io to receive live broadcasted drivers
@@ -479,6 +506,10 @@ export default function PassengerAppPage() {
           initialZoom={15}
           theme={mapTheme}
           activeRoutePolyline={activeRoutePolyline}
+          onMapClick={() => {
+            setIsFleetOpen(false);
+            setIsThemeMenuOpen(false);
+          }}
           onLocationChange={(latlng, label) => {
             setUserPos(latlng);
             setSearchQuery(label.split(",").slice(0, 2).join(",").trim());
@@ -517,7 +548,7 @@ export default function PassengerAppPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Search campus destination..."
+                placeholder="Search destination..."
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-emerald-50/50 text-slate-900 rounded-xl border border-emerald-100 focus:outline-none focus:border-emerald-500 transition placeholder:text-slate-400 font-medium"
               />
             </div>
@@ -534,7 +565,7 @@ export default function PassengerAppPage() {
               </button>
 
               {/* Consolidated Circular Layer-Stack Icon Button */}
-              <div className="relative shrink-0">
+              <div ref={themeMenuRef} className="relative shrink-0">
                 <button
                   onClick={() => setIsThemeMenuOpen((prev) => !prev)}
                   className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border shadow-sm flex items-center justify-center active:scale-95 transition-all ${
@@ -646,7 +677,10 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 4. COLLAPSIBLE NEARBY FLEET COLUMN (ALIGNED TO LEFT OF SEARCH BOX)     */}
       {/* ====================================================================== */}
-      <div className="absolute top-16 left-4 sm:top-3 sm:left-6 z-20 w-[calc(100vw-2rem)] sm:w-[340px] pointer-events-auto">
+      <div
+        ref={fleetRef}
+        className="absolute top-16 left-4 sm:top-3 sm:left-6 z-30 w-[calc(100vw-2rem)] sm:w-[340px] pointer-events-auto"
+      >
         <div className="flex flex-col bg-[#f0fbf5]/95 backdrop-blur-2xl border border-emerald-200/90 rounded-3xl shadow-xl overflow-hidden transition-all duration-300">
           {/* Column Header (Click to drop down or collapse) */}
           <button

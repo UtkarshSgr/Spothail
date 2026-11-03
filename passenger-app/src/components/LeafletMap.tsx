@@ -21,6 +21,7 @@ export interface LeafletVehicleMarker {
 
 export interface LeafletMapProps {
   onLocationChange?: (latlng: LatLng, label: string) => void;
+  onMapClick?: () => void;
   initialCenter?: LatLng;
   center?: LatLng;
   userLocation?: LatLng | null;
@@ -37,6 +38,7 @@ const DEFAULT_CENTER: LatLng = { lat: 11.3216, lng: 75.9336 }; // NIT Calicut
 
 export function LeafletMap({
   onLocationChange,
+  onMapClick,
   initialCenter = DEFAULT_CENTER,
   center,
   userLocation,
@@ -56,6 +58,11 @@ export function LeafletMap({
   const routeCasingRef = useRef<any>(null);
   const routeGlowRef = useRef<any>(null);
   const L = useRef<any>(null);
+  const onMapClickRef = useRef(onMapClick);
+
+  useEffect(() => {
+    onMapClickRef.current = onMapClick;
+  }, [onMapClick]);
 
   const [mapTheme, setMapTheme] = useState<"streets" | "dark" | "satellite">(theme || defaultTheme);
   const [mapReady, setMapReady] = useState(false);
@@ -128,6 +135,10 @@ export function LeafletMap({
       tileLayerRef.current = initialLayer;
 
       leaflet.control.zoom({ position: "topright" }).addTo(map);
+
+      map.on("click", () => {
+        onMapClickRef.current?.();
+      });
 
       mapRef.current = map;
       setMapReady(true);
@@ -320,14 +331,17 @@ export function LeafletMap({
           filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%);
         }
         .leaflet-top.leaflet-right {
+          position: absolute !important;
           top: 114px !important;
           right: 16px !important;
-          z-index: 15 !important;
+          z-index: 20 !important;
         }
         @media (min-width: 640px) {
           .leaflet-top.leaflet-right {
+            position: absolute !important;
             top: 60px !important;
             right: 20px !important;
+            z-index: 20 !important;
           }
         }
         .leaflet-control-zoom {
