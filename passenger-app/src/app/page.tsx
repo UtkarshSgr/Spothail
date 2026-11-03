@@ -492,7 +492,6 @@ export default function PassengerAppPage() {
             status: getOccupancyStatus(v.occupancy, v.maxCapacity),
             onClick: () => {
               setSelectedVehicleId(v.id);
-              setIsFleetOpen(true);
             },
           }))}
           className="w-full h-full"
@@ -502,7 +501,7 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 2. MINIMALIST FLOATING TOP BAR & SEARCH                                 */}
       {/* ====================================================================== */}
-      <header className="absolute top-3 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-[500px] z-30 pointer-events-none">
+      <header className="absolute top-3 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-[500px] z-50 pointer-events-none">
         <div className="pointer-events-auto flex flex-col gap-1.5">
           {/* Main Search & Action Bar */}
           <div className="flex items-center gap-2 bg-white/90 backdrop-blur-2xl border border-emerald-200/90 rounded-2xl p-1.5 shadow-md">
@@ -553,10 +552,10 @@ export default function PassengerAppPage() {
                 {isThemeMenuOpen && (
                   <>
                     <div
-                      className="fixed inset-0 z-40"
+                      className="fixed inset-0 z-50"
                       onClick={() => setIsThemeMenuOpen(false)}
                     />
-                    <div className="absolute right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-2xl p-1.5 shadow-xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2 z-50">
+                    <div className="absolute right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-2xl p-1.5 shadow-xl flex flex-col gap-1 min-w-[130px] animate-in fade-in slide-in-from-top-2 z-[60]">
                       <span className="text-[10px] font-black text-emerald-800/70 px-2 py-0.5 uppercase tracking-wider">
                         Map Style
                       </span>
@@ -626,7 +625,7 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 3. TOP-RIGHT CONTROLS: OCCUPANCY LEGEND                                */}
       {/* ====================================================================== */}
-      <div className="hidden sm:flex absolute top-3 right-4 z-30 items-center gap-2 pointer-events-auto">
+      <div className="hidden sm:flex absolute top-3 right-4 z-40 items-center gap-2 pointer-events-auto">
         {/* Strict 3-Color Occupancy Indicator Legend Pill */}
         <div className="flex items-center gap-2.5 text-[11px] font-bold bg-white/90 backdrop-blur-2xl px-3.5 py-1.5 rounded-full border border-emerald-200/90 shadow-md text-slate-700">
           <span className="flex items-center gap-1.5" title="Plenty of seats open">
@@ -647,7 +646,7 @@ export default function PassengerAppPage() {
       {/* ====================================================================== */}
       {/* 4. COLLAPSIBLE NEARBY FLEET COLUMN (ALIGNED TO LEFT OF SEARCH BOX)     */}
       {/* ====================================================================== */}
-      <div className="absolute top-16 left-4 sm:top-3 sm:left-6 z-30 w-[calc(100vw-2rem)] sm:w-[340px] pointer-events-auto">
+      <div className="absolute top-16 left-4 sm:top-3 sm:left-6 z-20 w-[calc(100vw-2rem)] sm:w-[340px] pointer-events-auto">
         <div className="flex flex-col bg-[#f0fbf5]/95 backdrop-blur-2xl border border-emerald-200/90 rounded-3xl shadow-xl overflow-hidden transition-all duration-300">
           {/* Column Header (Click to drop down or collapse) */}
           <button
@@ -740,23 +739,16 @@ export default function PassengerAppPage() {
                   );
                 })}
               </div>
-
-              {/* Docked Selected Vehicle Card */}
-              {selectedVehicle && (
-                <div className="shrink-0 bg-white border-t border-emerald-200/80 p-3.5 shadow-sm">
-                  {renderVehicleDetailContent(selectedVehicle)}
-                </div>
-              )}
             </div>
           )}
         </div>
       </div>
 
       {/* ====================================================================== */}
-      {/* 5. MOBILE BOTTOM SHEET: SELECTED VEHICLE DETAIL CARD                   */}
+      {/* 5. PINNED BOTTOM VEHICLE DETAIL CARD                                   */}
       {/* ====================================================================== */}
-      {selectedVehicle && !isFleetOpen && (
-        <div className="lg:hidden absolute bottom-3 left-3 right-3 z-30 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-3xl p-4 shadow-xl animate-in slide-in-from-bottom-3 duration-200">
+      {selectedVehicle && (
+        <div className="absolute bottom-3 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-[480px] z-30 bg-white/95 backdrop-blur-2xl border border-emerald-200 rounded-3xl p-4 shadow-xl animate-in slide-in-from-bottom-3 duration-200">
           {renderVehicleDetailContent(selectedVehicle, () => setSelectedVehicleId(null))}
         </div>
       )}

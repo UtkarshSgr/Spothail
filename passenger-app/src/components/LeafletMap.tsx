@@ -127,7 +127,7 @@ export function LeafletMap({
       initialLayer.addTo(map);
       tileLayerRef.current = initialLayer;
 
-      leaflet.control.zoom({ position: "bottomright" }).addTo(map);
+      leaflet.control.zoom({ position: "topright" }).addTo(map);
 
       mapRef.current = map;
       setMapReady(true);
@@ -319,19 +319,34 @@ export function LeafletMap({
         .dark-tiles .leaflet-tile-pane {
           filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%);
         }
+        .leaflet-top.leaflet-right {
+          top: 114px !important;
+          right: 16px !important;
+          z-index: 15 !important;
+        }
+        @media (min-width: 640px) {
+          .leaflet-top.leaflet-right {
+            top: 60px !important;
+            right: 20px !important;
+          }
+        }
         .leaflet-control-zoom {
           border: 1px solid rgba(16, 185, 129, 0.25) !important;
           box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
           border-radius: 12px !important;
           overflow: hidden;
+          transform: scale(0.9);
+          transform-origin: top right;
         }
         .leaflet-control-zoom a {
-          background: #ffffff !important;
+          background: rgba(255, 255, 255, 0.95) !important;
+          backdrop-filter: blur(8px) !important;
           color: #1e293b !important;
           border-color: #e2e8f0 !important;
-          width: 32px !important;
-          height: 32px !important;
-          line-height: 32px !important;
+          width: 28px !important;
+          height: 28px !important;
+          line-height: 28px !important;
+          font-size: 14px !important;
         }
         .leaflet-control-zoom a:hover {
           background: #f0fdf4 !important;
