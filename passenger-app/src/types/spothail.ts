@@ -30,6 +30,10 @@ export interface TransitVehicle {
   routePolyline?: [number, number][]; // [[lng, lat], ...] road route
   distanceMeters?: number;
   lastUpdated?: string | number;
+  // Online / Privacy status
+  status?: 'ONLINE' | 'OFFLINE';
+  isOnline?: boolean;
+  isPublic?: boolean;
   // Waypoint pathing for smooth road simulation
   pathWaypoints?: [number, number][]; // [[lng, lat], ...] road coordinates
   pathIndex?: number;

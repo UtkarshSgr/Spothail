@@ -116,7 +116,7 @@ export default function PassengerAppPage() {
       setVehicles((prev) => {
         const liveMap = new Map(
           liveDrivers
-            .filter((d) => d.status !== "OFFLINE" && d.isOnline !== false)
+            .filter((d) => d.status === "ONLINE" || (d.status !== "OFFLINE" && d.isOnline !== false && d.isPublic !== false))
             .map((d) => [
               d.driverId,
               {
@@ -132,11 +132,16 @@ export default function PassengerAppPage() {
                 destination: d.destination || (d.campusLocation ? { name: d.campusLocation } : undefined),
                 routePolyline: d.routePolyline,
                 lastUpdated: Date.now(),
+                status: "ONLINE",
+                isOnline: true,
+                isPublic: true,
               } as TransitVehicle,
             ])
         );
 
-        const updated = prev.filter((v) => !liveMap.has(v.id));
+        // Keep mock vehicles that are not in liveDrivers. Any live driver not in liveMap is offline!
+        const MOCK_IDS = new Set(["AUTO-01", "AUTO-02", "ERICK-01"]);
+        const updated = prev.filter((v) => MOCK_IDS.has(v.id) && !liveMap.has(v.id));
         return [...Array.from(liveMap.values()), ...updated];
       });
     });
@@ -146,11 +151,11 @@ export default function PassengerAppPage() {
       if (!data?.driverId) return;
       console.log("[Passenger App] Real-time DRIVER_STATUS_CHANGE broadcast:", data);
 
-      if (data.status === "OFFLINE") {
-        // Vehicle went offline -> remove marker from fleet & clear selection if active
+      if (data.status === "OFFLINE" || data.isOnline === false || data.isPublic === false) {
+        // Vehicle went offline -> immediately remove marker from active map state array so the vehicle disappears instantly
         setVehicles((prev) => prev.filter((v) => v.id !== data.driverId));
         setSelectedVehicleId((prevId) => (prevId === data.driverId ? null : prevId));
-      } else if (data.status === "ONLINE") {
+      } else if (data.status === "ONLINE" || data.isPublic === true) {
         // Vehicle went online -> dynamically render vehicle in fleet
         setVehicles((prev) => {
           const updatedVehicle: TransitVehicle = {
@@ -167,6 +172,9 @@ export default function PassengerAppPage() {
               data.destination || (data.campusLocation ? { name: data.campusLocation } : undefined),
             routePolyline: data.routePolyline,
             lastUpdated: Date.now(),
+            status: "ONLINE",
+            isOnline: true,
+            isPublic: true,
           };
           const filtered = prev.filter((v) => v.id !== data.driverId);
           return [updatedVehicle, ...filtered];
@@ -233,9 +241,16 @@ export default function PassengerAppPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Filtered vehicles within 2km with Haversine distance
+  // Filtered vehicles within 2.5km with Haversine distance
+  // Ensure ONLY drivers with status === 'ONLINE' (or isPublic: true) are rendered
   const filteredVehicles = useMemo(() => {
     return vehicles
+      .filter((v) => {
+        if (v.status && v.status !== "ONLINE") return false;
+        if (v.isOnline === false) return false;
+        if (v.isPublic === false) return false;
+        return true;
+      })
       .map((v) => ({
         ...v,
         distanceMeters: getDistanceMeters(userPos.lat, userPos.lng, v.lat, v.lng),
@@ -599,6 +614,12 @@ export default function PassengerAppPage() {
             setUserPos(latlng);
             setSearchQuery(label.split(",").slice(0, 2).join(",").trim());
           }}
+          onDriverStatusChange={(data) => {
+            if (data?.driverId && (data.status === "OFFLINE" || data.isOnline === false || data.isPublic === false)) {
+              setVehicles((prev) => prev.filter((v) => v.id !== data.driverId));
+              setSelectedVehicleId((prevId) => (prevId === data.driverId ? null : prevId));
+            }
+          }}
           vehicles={filteredVehicles.map((v) => ({
             id: v.id,
             type: v.type,
@@ -606,6 +627,9 @@ export default function PassengerAppPage() {
             lng: v.lng,
             label: v.label,
             status: getOccupancyStatus(v.occupancy, v.maxCapacity),
+            driverStatus: v.status || "ONLINE",
+            isOnline: v.isOnline !== false,
+            isPublic: v.isPublic !== false,
             onClick: () => {
               setSelectedVehicleId(v.id);
             },

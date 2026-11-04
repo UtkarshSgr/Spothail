@@ -655,11 +655,8 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                   type="button"
                   onClick={() => {
                     triggerHaptics?.();
-                    if (onTogglePublicRoute) {
-                      onTogglePublicRoute(true);
-                    } else {
-                      setShowDestination(true);
-                    }
+                    onTogglePublicRoute?.(true);
+                    setShowDestination(true);
                   }}
                   className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
                     isOnline && showDestination
@@ -674,11 +671,8 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
                   type="button"
                   onClick={() => {
                     triggerHaptics?.();
-                    if (onTogglePublicRoute) {
-                      onTogglePublicRoute(false);
-                    } else {
-                      setShowDestination(false);
-                    }
+                    onTogglePublicRoute?.(false);
+                    setShowDestination(false);
                   }}
                   className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
                     !isOnline || !showDestination

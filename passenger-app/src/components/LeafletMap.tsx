@@ -15,6 +15,9 @@ export interface LeafletVehicleMarker {
   lng: number;
   label: string;
   status: 'EMPTY' | 'HAS_SPACE' | 'FULL'; // green | yellow | red
+  driverStatus?: 'ONLINE' | 'OFFLINE';
+  isOnline?: boolean;
+  isPublic?: boolean;
   routeCoords?: [number, number][]; // optional road geometry
   popup?: string;
   onClick?: () => void;
@@ -41,6 +44,7 @@ const DEFAULT_CENTER: LatLng = { lat: 11.3216, lng: 75.9336 }; // NIT Calicut
 export function LeafletMap({
   onLocationChange,
   onMapClick,
+  onDriverStatusChange,
   initialCenter = DEFAULT_CENTER,
   center,
   userLocation,
@@ -257,9 +261,17 @@ export function LeafletMap({
   useEffect(() => {
     if (!mapRef.current || !L.current || !mapReady) return;
 
-    const currentIds = new Set(vehicles.map((v) => v.id));
+    // Dynamically filter so ONLY drivers with status === 'ONLINE' (or isPublic: true) are rendered
+    const onlineVehicles = vehicles.filter((v) => {
+      if (v.driverStatus && v.driverStatus !== "ONLINE") return false;
+      if (v.isOnline === false) return false;
+      if (v.isPublic === false) return false;
+      return true;
+    });
 
-    // Remove expired markers
+    const currentIds = new Set(onlineVehicles.map((v) => v.id));
+
+    // Remove expired or offline markers
     vehicleMarkersRef.current.forEach((marker, id) => {
       if (!currentIds.has(id)) {
         mapRef.current.removeLayer(marker);
@@ -268,7 +280,7 @@ export function LeafletMap({
     });
 
     // Upsert vehicle markers
-    vehicles.forEach((v) => {
+    onlineVehicles.forEach((v) => {
       upsertVehicleMarker(v);
     });
   }, [vehicles, mapReady, upsertVehicleMarker]);
@@ -282,6 +294,8 @@ export function LeafletMap({
     const handleDriverStatusChange = (data: {
       driverId: string;
       status: "ONLINE" | "OFFLINE";
+      isOnline?: boolean;
+      isPublic?: boolean;
       campusLocation?: string;
       lat?: number;
       lng?: number;
@@ -293,15 +307,15 @@ export function LeafletMap({
       if (!data?.driverId || !mapRef.current) return;
       console.log("[Passenger LeafletMap] DRIVER_STATUS_CHANGE received:", data);
 
-      if (data.status === "OFFLINE") {
-        // Remove vehicle marker from Passenger map instantly
+      if (data.status === "OFFLINE" || data.isOnline === false || data.isPublic === false) {
+        // When an 'OFFLINE' event is received for a driver ID, immediately remove that marker from the active map state array so the vehicle disappears instantly
         const existing = vehicleMarkersRef.current.get(data.driverId);
         if (existing) {
           mapRef.current.removeLayer(existing);
           vehicleMarkersRef.current.delete(data.driverId);
         }
       } else if (
-        data.status === "ONLINE" &&
+        (data.status === "ONLINE" || data.isPublic === true) &&
         typeof data.lat === "number" &&
         typeof data.lng === "number"
       ) {
@@ -318,8 +332,13 @@ export function LeafletMap({
           lng: data.lng,
           label: data.label || data.driverId,
           status,
+          driverStatus: "ONLINE",
+          isOnline: true,
+          isPublic: true,
         });
       }
+
+      onDriverStatusChange?.(data);
     };
 
     socket.on("DRIVER_STATUS_CHANGE", handleDriverStatusChange);
@@ -327,7 +346,7 @@ export function LeafletMap({
     return () => {
       socket.off("DRIVER_STATUS_CHANGE", handleDriverStatusChange);
     };
-  }, [mapReady, upsertVehicleMarker]);
+  }, [mapReady, upsertVehicleMarker, onDriverStatusChange]);
 
   // ── Render Active Route Polyline on Map (Glowing Royal Blue/Purple) ────
   useEffect(() => {

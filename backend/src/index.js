@@ -65,25 +65,28 @@ app.get('/health', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`[Socket.io] Connected: ${socket.id}`);
 
-  // In-memory telemetry cache
-  const activeDrivers = new Map();
-
   // Driver broadcasts status
   socket.on('driver:sync_status', (driverData) => {
     if (driverData?.driverId) {
-      if (driverData.isOnline === false || driverData.status === 'OFFLINE') {
+      if (driverData.isOnline === false || driverData.isPublic === false || driverData.status === 'OFFLINE') {
         activeDrivers.delete(driverData.driverId);
-        io.emit('DRIVER_STATUS_CHANGE', {
+        const offlinePayload = {
+          ...driverData,
           driverId: driverData.driverId,
           status: 'OFFLINE',
+          isOnline: false,
+          isPublic: false,
           campusLocation: driverData.campusLocation || 'Offline',
           timestamp: Date.now(),
-        });
+        };
+        io.emit('DRIVER_STATUS_CHANGE', offlinePayload);
         io.emit('server:nearby_autos', Array.from(activeDrivers.values()));
       } else {
         const record = {
           ...driverData,
           status: 'ONLINE',
+          isOnline: true,
+          isPublic: true,
           socketId: socket.id,
           lastUpdated: Date.now(),
         };
@@ -100,11 +103,14 @@ io.on('connection', (socket) => {
     const { driverId, status, campusLocation } = payload || {};
     if (!driverId) return;
 
-    if (status === 'OFFLINE') {
+    if (status === 'OFFLINE' || payload.isOnline === false || payload.isPublic === false) {
       activeDrivers.delete(driverId);
       const offlinePayload = {
+        ...payload,
         driverId,
         status: 'OFFLINE',
+        isOnline: false,
+        isPublic: false,
         campusLocation: campusLocation || 'Offline',
         timestamp: Date.now(),
       };
@@ -115,6 +121,8 @@ io.on('connection', (socket) => {
         ...payload,
         driverId,
         status: 'ONLINE',
+        isOnline: true,
+        isPublic: true,
         campusLocation: campusLocation || 'NIT Calicut Main Gate',
         socketId: socket.id,
         lastUpdated: Date.now(),
@@ -181,6 +189,8 @@ io.on('connection', (socket) => {
         io.emit('DRIVER_STATUS_CHANGE', {
           driverId: id,
           status: 'OFFLINE',
+          isOnline: false,
+          isPublic: false,
           campusLocation: driver.campusLocation || 'Offline',
           timestamp: Date.now(),
         });

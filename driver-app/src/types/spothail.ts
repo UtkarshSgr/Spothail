@@ -45,6 +45,8 @@ export interface DriverState {
   routePolyline?: [number, number][]; // [[lng, lat], ...] road route
   estimatedMinutes?: number;
   etaMinutes?: number;
+  status?: 'ONLINE' | 'OFFLINE';
+  isPublic?: boolean;
 }
 
 export interface PassengerPing {

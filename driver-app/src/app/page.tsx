@@ -47,10 +47,15 @@ export default function DriverHudPage() {
     maxCapacity: 4,
     isOnline: true,
     showDestination: true,
+    status: "ONLINE",
+    isPublic: true,
     destination: CORRIDORS[0],
     routePolyline: undefined,
     etaMinutes: 4,
   });
+
+  const driverStateRef = useRef(driverState);
+  driverStateRef.current = driverState;
 
   // UI & HUD State
   const [pings, setPings] = useState<PassengerPing[]>([]);
@@ -258,24 +263,38 @@ export default function DriverHudPage() {
   // Broadcast Driver Status (ONLINE / OFFLINE) with campus location
   const broadcastStatus = useCallback(
     (status: "ONLINE" | "OFFLINE", overrides?: Partial<DriverState>) => {
-      const currentState = { ...driverState, ...overrides };
+      const currentState = { ...driverStateRef.current, ...overrides };
       const campusLocation = currentState.destination?.name || "NIT Calicut Main Gate";
       const socket = socketRef.current;
-      if (!socket?.connected) return;
+      if (!socket?.connected) {
+        console.warn("[Broadcast] Socket not connected when attempting to broadcast", status);
+        return;
+      }
 
       if (status === "OFFLINE") {
         console.log(`[Broadcast] Driver ${currentState.driverId} -> OFFLINE`);
-        socket.emit("DRIVER_STATUS_CHANGE", {
+        const offlinePayload = {
           driverId: currentState.driverId,
-          status: "OFFLINE",
+          status: "OFFLINE" as const,
+          isOnline: false,
+          isPublic: false,
           campusLocation,
           timestamp: Date.now(),
+        };
+        socket.emit("DRIVER_STATUS_CHANGE", offlinePayload);
+        socket.emit("driver:sync_status", {
+          ...currentState,
+          status: "OFFLINE",
+          isOnline: false,
+          isPublic: false,
         });
       } else {
         console.log(`[Broadcast] Driver ${currentState.driverId} -> ONLINE at ${campusLocation}`);
-        socket.emit("DRIVER_STATUS_CHANGE", {
+        const onlinePayload = {
           driverId: currentState.driverId,
-          status: "ONLINE",
+          status: "ONLINE" as const,
+          isOnline: true,
+          isPublic: true,
           campusLocation,
           lat: currentState.lat,
           lng: currentState.lng,
@@ -286,26 +305,28 @@ export default function DriverHudPage() {
           destination: currentState.destination,
           routePolyline: currentState.routePolyline,
           timestamp: Date.now(),
-        });
-        socket.emit("driver:sync_status", currentState);
+        };
+        socket.emit("DRIVER_STATUS_CHANGE", onlinePayload);
+        socket.emit("driver:sync_status", onlinePayload);
       }
     },
-    [driverState]
+    []
   );
 
   // Toggle Public Route (Online) vs Roaming / Private (Offline)
   const handleToggleMode = useCallback(
     (isPublic: boolean) => {
       triggerHaptics();
-      setDriverState((prev) => {
-        const nextState = {
-          ...prev,
-          isOnline: isPublic,
-          showDestination: isPublic,
-        };
-        broadcastStatus(isPublic ? "ONLINE" : "OFFLINE", nextState);
-        return nextState;
-      });
+      const nextStatus = isPublic ? "ONLINE" : "OFFLINE";
+      const nextState: DriverState = {
+        ...driverStateRef.current,
+        isOnline: isPublic,
+        showDestination: isPublic,
+        status: nextStatus,
+        isPublic: isPublic,
+      };
+      setDriverState(nextState);
+      broadcastStatus(nextStatus, nextState);
     },
     [triggerHaptics, broadcastStatus]
   );
@@ -327,13 +348,14 @@ export default function DriverHudPage() {
       // 2. Trigger device haptics
       triggerHaptics();
 
-      const dist = getDistanceMeters(driverState.lat, driverState.lng, pingData.lat, pingData.lng);
+      const current = driverStateRef.current;
+      const dist = getDistanceMeters(current.lat, current.lng, pingData.lat, pingData.lng);
       const pickupLocation = pingData.pickupLocation || "MBH Hostel";
 
       const newPing: PassengerPing = {
         id: pingData.id || `PING-${Date.now()}`,
-        driverId: pingData.driverId || driverState.driverId,
-        targetDriverId: pingData.targetDriverId || driverState.driverId,
+        driverId: pingData.driverId || current.driverId,
+        targetDriverId: pingData.targetDriverId || current.driverId,
         lat: pingData.lat,
         lng: pingData.lng,
         timestamp: pingData.timestamp || Date.now(),
@@ -343,7 +365,7 @@ export default function DriverHudPage() {
 
       setPings((prev) => [newPing, ...prev.slice(0, 4)]);
     },
-    [driverState.lat, driverState.lng, driverState.driverId, playDashboardChime, triggerHaptics]
+    [playDashboardChime, triggerHaptics]
   );
 
   // Initialize Socket.io Connection
@@ -356,23 +378,24 @@ export default function DriverHudPage() {
 
     socket.on("connect", () => {
       setSocketConnected(true);
-      if (driverState.isOnline && driverState.showDestination) {
+      if (driverStateRef.current.isOnline && driverStateRef.current.showDestination) {
         broadcastStatus("ONLINE");
       }
     });
 
     const handlePing = (data: any) => {
+      const current = driverStateRef.current;
       const targetId = data?.targetDriverId || data?.driverId;
       // Filter ping by driverId
-      if (targetId && targetId !== driverState.driverId) {
+      if (targetId && targetId !== current.driverId) {
         return;
       }
       handleIncomingPing({
         id: data?.id,
         driverId: targetId,
         targetDriverId: targetId,
-        lat: data?.passengerLat ?? data?.lat ?? driverState.lat,
-        lng: data?.passengerLng ?? data?.lng ?? driverState.lng,
+        lat: data?.passengerLat ?? data?.lat ?? current.lat,
+        lng: data?.passengerLng ?? data?.lng ?? current.lng,
         pickupLocation: data?.pickupLocation || "MBH Hostel",
         timestamp: data?.timestamp,
       });
@@ -386,14 +409,25 @@ export default function DriverHudPage() {
     return () => {
       socket.disconnect();
     };
-  }, [backendUrl, broadcastStatus, driverState.driverId, driverState.isOnline, driverState.lat, driverState.lng, driverState.showDestination, handleIncomingPing]);
+  }, [backendUrl, broadcastStatus, handleIncomingPing]);
 
   // Broadcast Driver Telemetry (Position, Capacity, Occupancy, Route) in Real-Time
   useEffect(() => {
     if (socketRef.current?.connected && driverState.isOnline && driverState.showDestination) {
       broadcastStatus("ONLINE");
     }
-  }, [driverState.occupancy, driverState.maxCapacity, driverState.destination, driverState.type, broadcastStatus, driverState.isOnline, driverState.showDestination]);
+  }, [
+    driverState.lat,
+    driverState.lng,
+    driverState.occupancy,
+    driverState.maxCapacity,
+    driverState.destination,
+    driverState.type,
+    driverState.routePolyline,
+    broadcastStatus,
+    driverState.isOnline,
+    driverState.showDestination,
+  ]);
 
   // Occupancy Adjustments
   const handleIncrement = () => {
