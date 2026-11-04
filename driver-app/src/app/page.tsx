@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { io, Socket } from "socket.io-client";
-import { Navigation, Compass } from "lucide-react";
+import { Navigation, Compass, Hand, X, CheckCircle2, MapPin } from "lucide-react";
 import {
   DriverState,
   CorridorDestination,
@@ -93,6 +93,9 @@ export default function DriverHudPage() {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
       const now = ctx.currentTime;
 
       // Tone 1: High crisp alert chime
@@ -252,24 +255,120 @@ export default function DriverHudPage() {
     }
   }, [driverState.lat, driverState.lng, driverState.destination, driverState.routePolyline, regenerateRoute]);
 
+  // Passenger Ping Toast on Driver HUD
+  const [activeToast, setActiveToast] = useState<{
+    id: string;
+    pickupLocation: string;
+    distanceMeters?: number;
+    timestamp: number;
+  } | null>(null);
+
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Broadcast Driver Status (ONLINE / OFFLINE) with campus location
+  const broadcastStatus = useCallback(
+    (status: "ONLINE" | "OFFLINE", overrides?: Partial<DriverState>) => {
+      const currentState = { ...driverState, ...overrides };
+      const campusLocation = currentState.destination?.name || "NIT Calicut Main Gate";
+      const socket = socketRef.current;
+      if (!socket?.connected) return;
+
+      if (status === "OFFLINE") {
+        console.log(`[Broadcast] Driver ${currentState.driverId} -> OFFLINE`);
+        socket.emit("DRIVER_STATUS_CHANGE", {
+          driverId: currentState.driverId,
+          status: "OFFLINE",
+          campusLocation,
+          timestamp: Date.now(),
+        });
+      } else {
+        console.log(`[Broadcast] Driver ${currentState.driverId} -> ONLINE at ${campusLocation}`);
+        socket.emit("DRIVER_STATUS_CHANGE", {
+          driverId: currentState.driverId,
+          status: "ONLINE",
+          campusLocation,
+          lat: currentState.lat,
+          lng: currentState.lng,
+          type: currentState.type,
+          label: currentState.label,
+          occupancy: currentState.occupancy,
+          maxCapacity: currentState.maxCapacity,
+          destination: currentState.destination,
+          routePolyline: currentState.routePolyline,
+          timestamp: Date.now(),
+        });
+        socket.emit("driver:sync_status", currentState);
+      }
+    },
+    [driverState]
+  );
+
+  // Toggle Public Route (Online) vs Roaming / Private (Offline)
+  const handleToggleMode = useCallback(
+    (isPublic: boolean) => {
+      triggerHaptics();
+      setDriverState((prev) => {
+        const nextState = {
+          ...prev,
+          isOnline: isPublic,
+          showDestination: isPublic,
+        };
+        broadcastStatus(isPublic ? "ONLINE" : "OFFLINE", nextState);
+        return nextState;
+      });
+    },
+    [triggerHaptics, broadcastStatus]
+  );
+
   // Handle incoming Passenger Handwave Ping
   const handleIncomingPing = useCallback(
-    (pingData: { id: string; lat: number; lng: number; timestamp?: number }) => {
+    (pingData: {
+      id?: string;
+      driverId?: string;
+      targetDriverId?: string;
+      lat: number;
+      lng: number;
+      pickupLocation?: string;
+      timestamp?: number;
+    }) => {
+      // 1. Play audio alert sound
       playDashboardChime();
+
+      // 2. Trigger device haptics
       triggerHaptics();
 
       const dist = getDistanceMeters(driverState.lat, driverState.lng, pingData.lat, pingData.lng);
+      const pickupLocation = pingData.pickupLocation || "MBH Hostel";
+
       const newPing: PassengerPing = {
         id: pingData.id || `PING-${Date.now()}`,
+        driverId: pingData.driverId || driverState.driverId,
+        targetDriverId: pingData.targetDriverId || driverState.driverId,
         lat: pingData.lat,
         lng: pingData.lng,
         timestamp: pingData.timestamp || Date.now(),
         distanceMeters: dist,
+        pickupLocation,
       };
 
       setPings((prev) => [newPing, ...prev.slice(0, 4)]);
+
+      // 3. Display toast notification on Driver HUD
+      setActiveToast({
+        id: newPing.id!,
+        pickupLocation,
+        distanceMeters: dist,
+        timestamp: Date.now(),
+      });
+
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = setTimeout(() => {
+        setActiveToast(null);
+      }, 9000);
     },
-    [driverState.lat, driverState.lng, playDashboardChime, triggerHaptics]
+    [driverState.lat, driverState.lng, driverState.driverId, playDashboardChime, triggerHaptics]
   );
 
   // Initialize Socket.io Connection
@@ -282,28 +381,44 @@ export default function DriverHudPage() {
 
     socket.on("connect", () => {
       setSocketConnected(true);
-      if (driverState.isOnline) {
-        socket.emit("driver:sync_status", driverState);
+      if (driverState.isOnline && driverState.showDestination) {
+        broadcastStatus("ONLINE");
       }
     });
 
-    socket.on("driver:ping_received", (data: { id: string; lat: number; lng: number }) => {
-      handleIncomingPing(data);
-    });
+    const handlePing = (data: any) => {
+      const targetId = data?.targetDriverId || data?.driverId;
+      // Filter ping by driverId
+      if (targetId && targetId !== driverState.driverId) {
+        return;
+      }
+      handleIncomingPing({
+        id: data?.id,
+        driverId: targetId,
+        targetDriverId: targetId,
+        lat: data?.passengerLat ?? data?.lat ?? driverState.lat,
+        lng: data?.passengerLng ?? data?.lng ?? driverState.lng,
+        pickupLocation: data?.pickupLocation || "MBH Hostel",
+        timestamp: data?.timestamp,
+      });
+    };
+
+    socket.on("PASSENGER_PING", handlePing);
+    socket.on("driver:ping_received", handlePing);
 
     socket.on("disconnect", () => setSocketConnected(false));
 
     return () => {
       socket.disconnect();
     };
-  }, [backendUrl, handleIncomingPing]);
+  }, [backendUrl, broadcastStatus, driverState.driverId, driverState.isOnline, driverState.lat, driverState.lng, driverState.showDestination, handleIncomingPing]);
 
   // Broadcast Driver Telemetry (Position, Capacity, Occupancy, Route) in Real-Time
   useEffect(() => {
-    if (socketRef.current?.connected && driverState.isOnline) {
-      socketRef.current.emit("driver:sync_status", driverState);
+    if (socketRef.current?.connected && driverState.isOnline && driverState.showDestination) {
+      broadcastStatus("ONLINE");
     }
-  }, [driverState]);
+  }, [driverState.occupancy, driverState.maxCapacity, driverState.destination, driverState.type, broadcastStatus, driverState.isOnline, driverState.showDestination]);
 
   // Occupancy Adjustments
   const handleIncrement = () => {
@@ -364,16 +479,16 @@ export default function DriverHudPage() {
       {/* 1. TOP COMMAND BAR (DESTINATION SETUP & SEAT INDICATOR)                */}
       {/* ====================================================================== */}
       <DriverHeader
+        driverId={driverState.driverId}
+        isOnline={driverState.isOnline}
+        onTogglePublicRoute={handleToggleMode}
         vehicleType={driverState.type}
         setVehicleType={handleSetVehicleType}
         occupancy={driverState.occupancy}
         maxSeats={driverState.maxCapacity}
         setMaxSeats={handleSetCapacity}
         showDestination={driverState.showDestination}
-        setShowDestination={(val) => {
-          triggerHaptics();
-          setDriverState((prev) => ({ ...prev, showDestination: val }));
-        }}
+        setShowDestination={(val) => handleToggleMode(val)}
         activeDestination={driverState.destination}
         onSelectDestination={handleCorridorSelect}
         corridors={CORRIDORS}
@@ -382,6 +497,7 @@ export default function DriverHudPage() {
             id: `SIM-${Date.now()}`,
             lat: driverState.lat + (Math.random() - 0.4) * 0.003,
             lng: driverState.lng + (Math.random() - 0.4) * 0.003,
+            pickupLocation: "MBH Hostel",
             timestamp: Date.now(),
           })
         }
@@ -390,6 +506,84 @@ export default function DriverHudPage() {
         onSelectMapTheme={setMapTheme}
         onRecenter={() => setRecenterTrigger((prev) => prev + 1)}
       />
+
+      {/* ====================================================================== */}
+      {/* PASSENGER PING TOAST NOTIFICATION ON DRIVER HUD                        */}
+      {/* ====================================================================== */}
+      {activeToast && (
+        <div className="absolute top-14 sm:top-16 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-[440px] z-50 pointer-events-auto animate-in slide-in-from-top-4 duration-300">
+          <div className="relative overflow-hidden bg-slate-900/95 backdrop-blur-2xl border-2 border-emerald-500 rounded-3xl p-3.5 sm:p-4 shadow-2xl text-white">
+            {/* Animated Glow Accent */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500 animate-pulse" />
+
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                {/* Waving Hand Badge */}
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center shrink-0 shadow-lg text-emerald-300">
+                  <Hand className="w-6 h-6 animate-bounce" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                      Passenger Waved at Curb!
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Just now</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 font-black text-sm sm:text-base text-white truncate">
+                    <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="truncate">Pickup: {activeToast.pickupLocation}</span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs text-slate-300 mt-1">
+                    <span className="font-semibold text-emerald-300">
+                      ~{typeof activeToast.distanceMeters === "number"
+                        ? Math.round(activeToast.distanceMeters) >= 1000
+                          ? `${(activeToast.distanceMeters / 1000).toFixed(1)} km away`
+                          : `${Math.round(activeToast.distanceMeters)}m away`
+                        : "Nearby"}
+                    </span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-400">Audio chime & vibration active</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptics();
+                  setActiveToast(null);
+                }}
+                className="p-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition shrink-0"
+                aria-label="Dismiss toast"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Action Button */}
+            <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-400 font-medium">
+                Signal ready for curb pickup
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptics();
+                  setActiveToast(null);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md active:scale-95 transition flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Acknowledge</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ====================================================================== */}
       {/* 2. FULL-SCREEN DRIVER LEAFLET MAP WITH DYNAMIC ROAD ROUTING           */}

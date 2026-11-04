@@ -45,6 +45,7 @@ const DEFAULT_CENTER = { lat: 11.3216, lng: 75.9336 };
 
 // Common corridor landmarks for 1-tap fast geocoding
 const CAMPUS_LOCATIONS = [
+  { id: "mbh-hostel", text: "MBH Hostel", center: [75.9315, 11.3175] },
   { id: "main-gate", text: "NIT Main Gate", center: [75.9336, 11.3216] },
   { id: "mbb-hostels", text: "Mega Boys Block (MBB)", center: [75.9315, 11.3175] },
   { id: "kattangal-jn", text: "Kattangal Junction", center: [75.9348, 11.3275] },
@@ -54,6 +55,7 @@ const CAMPUS_LOCATIONS = [
 
 export default function PassengerAppPage() {
   const [userPos, setUserPos] = useState(DEFAULT_CENTER);
+  const [selectedPickupLocation, setSelectedPickupLocation] = useState<string>("MBH Hostel");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
 
@@ -105,7 +107,7 @@ export default function PassengerAppPage() {
   }, [isFleetOpen, isThemeMenuOpen]);
 
 
-  // Connect to Socket.io to receive live broadcasted drivers
+  // Connect to Socket.io to receive live broadcasted drivers and status changes
   useEffect(() => {
     const socket = socketService.connect();
 
@@ -113,23 +115,25 @@ export default function PassengerAppPage() {
       if (!Array.isArray(liveDrivers)) return;
       setVehicles((prev) => {
         const liveMap = new Map(
-          liveDrivers.map((d) => [
-            d.driverId,
-            {
-              id: d.driverId,
-              type: d.type || "AUTO",
-              label: d.label || d.driverId,
-              driverName: d.driverName || "Live Driver",
-              registrationNumber: d.registrationNumber || "KL-11-LIVE",
-              lat: d.lat,
-              lng: d.lng,
-              occupancy: d.occupancy ?? 0,
-              maxCapacity: d.maxCapacity ?? 4,
-              destination: d.destination,
-              routePolyline: d.routePolyline,
-              lastUpdated: Date.now(),
-            } as TransitVehicle,
-          ])
+          liveDrivers
+            .filter((d) => d.status !== "OFFLINE" && d.isOnline !== false)
+            .map((d) => [
+              d.driverId,
+              {
+                id: d.driverId,
+                type: d.type || "AUTO",
+                label: d.label || d.driverId,
+                driverName: d.driverName || "Live Driver",
+                registrationNumber: d.registrationNumber || "KL-11-LIVE",
+                lat: d.lat,
+                lng: d.lng,
+                occupancy: d.occupancy ?? 0,
+                maxCapacity: d.maxCapacity ?? 4,
+                destination: d.destination || (d.campusLocation ? { name: d.campusLocation } : undefined),
+                routePolyline: d.routePolyline,
+                lastUpdated: Date.now(),
+              } as TransitVehicle,
+            ])
         );
 
         const updated = prev.filter((v) => !liveMap.has(v.id));
@@ -137,8 +141,42 @@ export default function PassengerAppPage() {
       });
     });
 
+    // Requirement 2: Listen for real-time DRIVER_STATUS_CHANGE broadcasts
+    socket.on("DRIVER_STATUS_CHANGE", (data: any) => {
+      if (!data?.driverId) return;
+      console.log("[Passenger App] Real-time DRIVER_STATUS_CHANGE broadcast:", data);
+
+      if (data.status === "OFFLINE") {
+        // Vehicle went offline -> remove marker from fleet & clear selection if active
+        setVehicles((prev) => prev.filter((v) => v.id !== data.driverId));
+        setSelectedVehicleId((prevId) => (prevId === data.driverId ? null : prevId));
+      } else if (data.status === "ONLINE") {
+        // Vehicle went online -> dynamically render vehicle in fleet
+        setVehicles((prev) => {
+          const updatedVehicle: TransitVehicle = {
+            id: data.driverId,
+            type: data.type || "AUTO",
+            label: data.label || data.driverId,
+            driverName: data.driverName || "Live Driver",
+            registrationNumber: data.registrationNumber || "KL-11-LIVE",
+            lat: data.lat ?? DEFAULT_CENTER.lat,
+            lng: data.lng ?? DEFAULT_CENTER.lng,
+            occupancy: data.occupancy ?? 0,
+            maxCapacity: data.maxCapacity ?? 4,
+            destination:
+              data.destination || (data.campusLocation ? { name: data.campusLocation } : undefined),
+            routePolyline: data.routePolyline,
+            lastUpdated: Date.now(),
+          };
+          const filtered = prev.filter((v) => v.id !== data.driverId);
+          return [updatedVehicle, ...filtered];
+        });
+      }
+    });
+
     return () => {
       socket.off("server:nearby_autos");
+      socket.off("DRIVER_STATUS_CHANGE");
     };
   }, []);
 
@@ -351,18 +389,27 @@ export default function PassengerAppPage() {
     );
   };
 
-  // Optional Digital Wave (Signals driver on curb)
+  // Requirement 3: Live Passenger Ping & Driver Notification
   const handleWaveAtDriver = (vehicleId: string) => {
     setPingedDrivers((prev) => ({ ...prev, [vehicleId]: true }));
 
-    const socket = socketService.getSocket();
-    if (socket?.connected) {
-      socket.emit("passenger:ping_driver", {
-        targetDriverId: vehicleId,
-        passengerLat: userPos.lat,
-        passengerLng: userPos.lng,
-      });
-    }
+    const socket = socketService.connect();
+    const pickupLoc = selectedPickupLocation || "MBH Hostel";
+    const pingPayload = {
+      id: `PING-${Date.now()}`,
+      driverId: vehicleId,
+      targetDriverId: vehicleId,
+      pickupLocation: pickupLoc,
+      passengerLat: userPos.lat,
+      passengerLng: userPos.lng,
+      lat: userPos.lat,
+      lng: userPos.lng,
+      timestamp: Date.now(),
+    };
+
+    console.log(`[PASSENGER_PING] Sending ping to driver ${vehicleId} at pickup "${pickupLoc}"`);
+    socket.emit("PASSENGER_PING", pingPayload);
+    socket.emit("passenger:ping_driver", pingPayload);
 
     setTimeout(() => {
       setPingedDrivers((prev) => ({ ...prev, [vehicleId]: false }));
@@ -434,8 +481,46 @@ export default function PassengerAppPage() {
           </button>
         </div>
 
+        {/* Selected Pickup Location Selector */}
+        <div className="flex items-center justify-between gap-2 bg-[#f0fbf5] p-2.5 rounded-2xl border border-emerald-200/90 my-0.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-xl bg-emerald-100/90 border border-emerald-300 flex items-center justify-center text-emerald-800 shrink-0">
+              <MapPin className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block leading-none">
+                Pickup Location
+              </span>
+              <span className="text-xs font-black text-slate-900 truncate block mt-0.5">
+                {selectedPickupLocation}
+              </span>
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <select
+              value={selectedPickupLocation}
+              onChange={(e) => {
+                const nextVal = e.target.value;
+                setSelectedPickupLocation(nextVal);
+                const found = CAMPUS_LOCATIONS.find((c) => c.text === nextVal);
+                if (found) {
+                  setUserPos({ lat: found.center[1], lng: found.center[0] });
+                }
+              }}
+              className="text-xs font-bold text-emerald-950 bg-white border border-emerald-300 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500 shadow-xs cursor-pointer"
+            >
+              {CAMPUS_LOCATIONS.map((loc) => (
+                <option key={loc.id} value={loc.text}>
+                  {loc.text}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Occupancy Indicator Badge & Distance */}
-        <div className="flex items-center justify-between gap-2 bg-[#f0fdf4] p-2.5 rounded-2xl border border-emerald-200/90 my-1">
+        <div className="flex items-center justify-between gap-2 bg-[#f0fdf4] p-2.5 rounded-2xl border border-emerald-200/90 my-0.5">
           <div className="flex items-center gap-2">
             <span
               className="w-3 h-3 rounded-full shrink-0"
@@ -476,12 +561,12 @@ export default function PassengerAppPage() {
             {pingedDrivers[vehicle.id] ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                <span>Driver Signaled! Wave as they approach</span>
+                <span>Driver Signaled at {selectedPickupLocation}!</span>
               </>
             ) : (
               <>
                 <Hand className="w-4 h-4 text-amber-200" />
-                <span>Wave at Driver (Signal Curb Pickup)</span>
+                <span>Wave at Driver (Signal Curb Pickup at {selectedPickupLocation})</span>
               </>
             )}
           </button>
@@ -640,6 +725,7 @@ export default function PassengerAppPage() {
                     const [lng, lat] = place.center;
                     setUserPos({ lat, lng });
                     setSearchQuery(place.text);
+                    setSelectedPickupLocation(place.text);
                     setSearchSuggestions([]);
                   }}
                   className="w-full text-left px-3.5 py-2 text-xs text-slate-800 hover:bg-emerald-50 flex items-center gap-2.5 transition"
@@ -650,6 +736,33 @@ export default function PassengerAppPage() {
               ))}
             </div>
           )}
+
+          {/* Quick Pickup Location Selection Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 px-0.5">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0 bg-white/80 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-emerald-100">
+              Pickup:
+            </span>
+            {CAMPUS_LOCATIONS.slice(0, 4).map((loc) => {
+              const isSelected = selectedPickupLocation === loc.text;
+              return (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPickupLocation(loc.text);
+                    setUserPos({ lat: loc.center[1], lng: loc.center[0] });
+                  }}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap border transition active:scale-95 shadow-xs ${
+                    isSelected
+                      ? "bg-emerald-600 text-white border-emerald-700"
+                      : "bg-white/90 text-slate-700 hover:bg-emerald-50 border-emerald-200"
+                  }`}
+                >
+                  {loc.text}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 

@@ -27,6 +27,10 @@ import {
 } from "@/types/spothail";
 
 export interface DriverHeaderProps {
+  driverId?: string;
+  setDriverId?: (id: string) => void;
+  isOnline?: boolean;
+  onTogglePublicRoute?: (isPublic: boolean) => void;
   vehicleType: VehicleType;
   setVehicleType: (type: VehicleType) => void;
   occupancy: number;
@@ -47,6 +51,10 @@ export interface DriverHeaderProps {
 }
 
 export const DriverHeader: React.FC<DriverHeaderProps> = ({
+  driverId = "AUTO-04",
+  setDriverId,
+  isOnline = true,
+  onTogglePublicRoute,
   vehicleType,
   setVehicleType,
   occupancy,
@@ -625,37 +633,61 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
 
             {/* Destination Public Visibility Toggle */}
             <div className="py-3.5 border-b border-slate-800">
-              <label className="text-xs font-bold uppercase text-slate-400 block mb-2">
-                Corridor Route Privacy
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold uppercase text-slate-400 block">
+                  Corridor Route Privacy & Broadcast
+                </label>
+                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  isOnline && showDestination
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                    : "bg-slate-800 text-slate-400 border border-slate-700"
+                }`}>
+                  {isOnline && showDestination ? "Live Online" : "Offline"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-2.5">
+                {isOnline && showDestination
+                  ? "Broadcasting active vehicle marker to passenger maps."
+                  : "Vehicle marker hidden from passenger maps."}
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
+                  type="button"
                   onClick={() => {
                     triggerHaptics?.();
-                    setShowDestination(true);
+                    if (onTogglePublicRoute) {
+                      onTogglePublicRoute(true);
+                    } else {
+                      setShowDestination(true);
+                    }
                   }}
                   className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
-                    showDestination
-                      ? "bg-emerald-700 text-white border-emerald-500 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
+                    isOnline && showDestination
+                      ? "bg-emerald-600 text-white border-emerald-400 shadow-md ring-2 ring-emerald-500/20"
+                      : "bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-750 hover:text-slate-200"
                   }`}
                 >
-                  <Eye className="w-4 h-4" />
-                  <span>Public Route</span>
+                  <Eye className="w-4 h-4 text-emerald-300" />
+                  <span>Public Route (Online)</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     triggerHaptics?.();
-                    setShowDestination(false);
+                    if (onTogglePublicRoute) {
+                      onTogglePublicRoute(false);
+                    } else {
+                      setShowDestination(false);
+                    }
                   }}
                   className={`py-2.5 px-3 rounded-2xl font-bold text-xs border flex items-center justify-center gap-1.5 transition ${
-                    !showDestination
-                      ? "bg-slate-700 text-white border-slate-500 shadow-md"
-                      : "bg-slate-800 text-slate-400 border-slate-700"
+                    !isOnline || !showDestination
+                      ? "bg-slate-700 text-white border-slate-500 shadow-md ring-2 ring-slate-500/20"
+                      : "bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-750 hover:text-slate-200"
                   }`}
                 >
-                  <EyeOff className="w-4 h-4" />
-                  <span>Roaming / Private</span>
+                  <EyeOff className="w-4 h-4 text-slate-300" />
+                  <span>Roaming / Private (Offline)</span>
                 </button>
               </div>
             </div>

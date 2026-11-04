@@ -41,6 +41,7 @@ export interface DriverState {
   isOnline: boolean;
   showDestination: boolean;
   destination: CorridorDestination | null;
+  campusLocation?: string;
   routePolyline?: [number, number][]; // [[lng, lat], ...] road route
   estimatedMinutes?: number;
   etaMinutes?: number;
@@ -48,6 +49,9 @@ export interface DriverState {
 
 export interface PassengerPing {
   id?: string;
+  driverId?: string;
+  targetDriverId?: string;
+  pickupLocation?: string;
   lat: number;
   lng: number;
   timestamp?: number;

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import socketService from "@/lib/socket";
 
 export interface LatLng {
   lat: number;
@@ -22,6 +23,7 @@ export interface LeafletVehicleMarker {
 export interface LeafletMapProps {
   onLocationChange?: (latlng: LatLng, label: string) => void;
   onMapClick?: () => void;
+  onDriverStatusChange?: (data: any) => void;
   initialCenter?: LatLng;
   center?: LatLng;
   userLocation?: LatLng | null;
@@ -197,22 +199,11 @@ export function LeafletMap({
     }
   }, [userLocation, mapReady]);
 
-  // ── Render Vehicles with Clean SVG Badges & Strict 3-Color Occupancy ────
-  useEffect(() => {
-    if (!mapRef.current || !L.current || !mapReady) return;
+  // ── Upsert Vehicle Marker Helper ──────────────────────────────────────
+  const upsertVehicleMarker = useCallback(
+    (v: LeafletVehicleMarker) => {
+      if (!mapRef.current || !L.current) return;
 
-    const currentIds = new Set(vehicles.map((v) => v.id));
-
-    // Remove expired markers
-    vehicleMarkersRef.current.forEach((marker, id) => {
-      if (!currentIds.has(id)) {
-        mapRef.current.removeLayer(marker);
-        vehicleMarkersRef.current.delete(id);
-      }
-    });
-
-    // Upsert vehicle markers
-    vehicles.forEach((v) => {
       let dotColor = "#f59e0b"; // Yellow (Partly Full)
       let ringColor = "rgba(245, 158, 11, 0.4)";
       if (v.status === "EMPTY") {
@@ -258,8 +249,85 @@ export function LeafletMap({
 
         vehicleMarkersRef.current.set(v.id, marker);
       }
+    },
+    []
+  );
+
+  // ── Render Vehicles with Clean SVG Badges & Strict 3-Color Occupancy ────
+  useEffect(() => {
+    if (!mapRef.current || !L.current || !mapReady) return;
+
+    const currentIds = new Set(vehicles.map((v) => v.id));
+
+    // Remove expired markers
+    vehicleMarkersRef.current.forEach((marker, id) => {
+      if (!currentIds.has(id)) {
+        mapRef.current.removeLayer(marker);
+        vehicleMarkersRef.current.delete(id);
+      }
     });
-  }, [vehicles, mapReady]);
+
+    // Upsert vehicle markers
+    vehicles.forEach((v) => {
+      upsertVehicleMarker(v);
+    });
+  }, [vehicles, mapReady, upsertVehicleMarker]);
+
+  // ── Listen for real-time DRIVER_STATUS_CHANGE broadcasts on the Map ────
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !L.current) return;
+
+    const socket = socketService.connect();
+
+    const handleDriverStatusChange = (data: {
+      driverId: string;
+      status: "ONLINE" | "OFFLINE";
+      campusLocation?: string;
+      lat?: number;
+      lng?: number;
+      type?: "AUTO" | "ERICKSHAW";
+      label?: string;
+      occupancy?: number;
+      maxCapacity?: number;
+    }) => {
+      if (!data?.driverId || !mapRef.current) return;
+      console.log("[Passenger LeafletMap] DRIVER_STATUS_CHANGE received:", data);
+
+      if (data.status === "OFFLINE") {
+        // Remove vehicle marker from Passenger map instantly
+        const existing = vehicleMarkersRef.current.get(data.driverId);
+        if (existing) {
+          mapRef.current.removeLayer(existing);
+          vehicleMarkersRef.current.delete(data.driverId);
+        }
+      } else if (
+        data.status === "ONLINE" &&
+        typeof data.lat === "number" &&
+        typeof data.lng === "number"
+      ) {
+        // Dynamically render active vehicle marker on Passenger map
+        const occupancy = data.occupancy ?? 0;
+        const maxCapacity = data.maxCapacity ?? 4;
+        const status =
+          occupancy <= 0 ? "EMPTY" : occupancy >= maxCapacity ? "FULL" : "HAS_SPACE";
+
+        upsertVehicleMarker({
+          id: data.driverId,
+          type: data.type || "AUTO",
+          lat: data.lat,
+          lng: data.lng,
+          label: data.label || data.driverId,
+          status,
+        });
+      }
+    };
+
+    socket.on("DRIVER_STATUS_CHANGE", handleDriverStatusChange);
+
+    return () => {
+      socket.off("DRIVER_STATUS_CHANGE", handleDriverStatusChange);
+    };
+  }, [mapReady, upsertVehicleMarker]);
 
   // ── Render Active Route Polyline on Map (Glowing Royal Blue/Purple) ────
   useEffect(() => {
