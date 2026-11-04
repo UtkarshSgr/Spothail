@@ -309,17 +309,20 @@ export function DriverLeafletMap({
     pings.forEach((ping) => {
       const icon = L.current.divIcon({
         html: `
-          <div style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.85);color:#ffffff;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
-              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
-              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
-              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
-            </svg>
+          <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;">
+            <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(34,197,94,0.4);animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;"></div>
+            <div style="position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#16a34a;border:2px solid #ffffff;box-shadow:0 0 16px rgba(34,197,94,0.85);color:#ffffff;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+                <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+                <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+                <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+              </svg>
+            </div>
           </div>
         `,
-        iconSize: [38, 38],
-        iconAnchor: [19, 19],
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
         className: "",
       });
 
@@ -378,6 +381,12 @@ export function DriverLeafletMap({
           color: #059669 !important;
         }
         .leaflet-attribution-flag { display: none; }
+        @keyframes ping {
+          75%, 100% {
+            transform: scale(2);
+            opacity: 0;
+          }
+        }
       `}</style>
 
       {!mapReady && (

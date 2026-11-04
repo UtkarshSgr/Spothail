@@ -736,33 +736,6 @@ export default function PassengerAppPage() {
               ))}
             </div>
           )}
-
-          {/* Quick Pickup Location Selection Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 px-0.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0 bg-white/80 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-emerald-100">
-              Pickup:
-            </span>
-            {CAMPUS_LOCATIONS.slice(0, 4).map((loc) => {
-              const isSelected = selectedPickupLocation === loc.text;
-              return (
-                <button
-                  key={loc.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPickupLocation(loc.text);
-                    setUserPos({ lat: loc.center[1], lng: loc.center[0] });
-                  }}
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap border transition active:scale-95 shadow-xs ${
-                    isSelected
-                      ? "bg-emerald-600 text-white border-emerald-700"
-                      : "bg-white/90 text-slate-700 hover:bg-emerald-50 border-emerald-200"
-                  }`}
-                >
-                  {loc.text}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </header>
 
